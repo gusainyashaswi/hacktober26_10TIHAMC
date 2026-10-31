@@ -44,6 +44,7 @@ class AnalysisService:
         snapshot_loader: Callable[[str, str], Snapshot] | None = None,
         assessor: Callable = assess_claims,
         runner: Callable | None = None,
+        workspace=None,
     ):
         if max_reports < 1:
             raise ValueError("max_reports must be positive")
@@ -53,6 +54,7 @@ class AnalysisService:
         self.snapshot_loader = snapshot_loader
         self.assessor = assessor
         self.runner = runner
+        self.workspace = workspace
         self._snapshots: dict[str, Snapshot] = {}
         self._requests: dict[str, AnalysisRequest] = {}
         self._reports: dict[str, AnalysisReport] = {}
@@ -79,17 +81,41 @@ class AnalysisService:
             )
             self._active = identifier
             self._requests[identifier] = request.model_copy(deep=True)
+            if self.workspace:
+                self.workspace.save(request, self._reports[identifier])
             return identifier
 
     def get(self, identifier: str) -> AnalysisReport | None:
         with self._lock:
             report = self._reports.get(identifier)
+            if report is None and self.workspace:
+                stored = self.workspace.investigation(identifier)
+                if stored:
+                    report = AnalysisReport.model_validate_json(stored["report_json"])
+                    if report.stage not in ("complete", "error", "awaiting_evidence"):
+                        report = AnalysisReport.model_validate(
+                            report.model_dump()
+                            | {
+                                "stage": "error",
+                                "errors": [
+                                    "interrupted: The server restarted before this investigation finished."
+                                ],
+                            }
+                        )
+                    self._reports[identifier] = report
+                    self._requests[identifier] = AnalysisRequest.model_validate_json(
+                        stored["request_json"]
+                    )
             return report.model_copy(deep=True) if report is not None else None
 
     def _update(self, identifier: str, **changes) -> None:
         with self._lock:
             data = self._reports[identifier].model_dump() | changes
             self._reports[identifier] = AnalysisReport.model_validate(data)
+            if self.workspace:
+                self.workspace.save(
+                    self._requests[identifier], self._reports[identifier]
+                )
 
     def run(self, identifier: str, report_text: str) -> None:
         try:
@@ -100,7 +126,23 @@ class AnalysisService:
                 snapshot = self.snapshot_loader(request.repository, request.revision)
                 with self._lock:
                     self._snapshots[identifier] = snapshot
-                self._update(identifier, revision=snapshot.commit)
+                self._update(
+                    identifier,
+                    revision=snapshot.commit,
+                    source_revision=snapshot.commit,
+                )
+                if request.source_revision:
+                    snapshot = self.snapshot_loader(
+                        request.source_repository or request.repository,
+                        request.source_revision,
+                    )
+                    self._update(
+                        identifier,
+                        comparison_revision=snapshot.commit,
+                        source_revision=snapshot.commit,
+                        source_repository=request.source_repository
+                        or request.repository,
+                    )
             self._update(identifier, stage="extracting")
             result = self.extractor(report_text, self.settings)
             if result.model != self.settings.model:
@@ -154,7 +196,7 @@ class AnalysisService:
             if (
                 self._active is not None
                 or report.stage != "complete"
-                or identifier not in self._snapshots
+                or self.snapshot_loader is None
             ):
                 raise CapacityError(
                     "Wait for a complete source investigation before verification"
@@ -172,7 +214,7 @@ class AnalysisService:
     def run_verification(self, identifier: str, plan: VerificationPlan) -> None:
         try:
             self._update(identifier, stage="verifying")
-            run = self.runner(self._snapshots[identifier], plan)
+            run = self.runner(self.original_snapshot(identifier), plan)
             if (
                 run.test_hash
                 != hashlib.sha256(plan.test_code.encode("utf-8")).hexdigest()
@@ -238,12 +280,13 @@ class AnalysisService:
             self._update(identifier, stage="loading")
             request = self._requests[identifier]
             after_snapshot = self.snapshot_loader(
-                request.repository, request.comparison_revision
+                request.source_repository or request.repository,
+                request.comparison_revision,
             )
             self._update(
                 identifier, stage="verifying", comparison_revision=after_snapshot.commit
             )
-            before = self.runner(self._snapshots[identifier], plan)
+            before = self.runner(self.original_snapshot(identifier), plan)
             after = self.runner(after_snapshot, plan)
             comparison = compare_runs(before, after, plan)
             report = self.get(identifier)
@@ -300,3 +343,11 @@ class AnalysisService:
         finally:
             with self._lock:
                 self._active = None
+
+    def original_snapshot(self, identifier):
+        if identifier not in self._snapshots:
+            report = self.get(identifier)
+            self._snapshots[identifier] = self.snapshot_loader(
+                report.repository, report.revision
+            )
+        return self._snapshots[identifier]

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import Field, field_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from nobluff.github import GitHub
 from nobluff.model import OllamaSettings
 from nobluff.model.extraction import MAX_REPORT_CHARS
 from nobluff.pipeline import AnalysisService, CapacityError
@@ -19,17 +20,23 @@ from nobluff.reporting import export_report
 from nobluff.repositories import RepositoryLoader
 from nobluff.schemas import AnalysisReport, AnalysisRequest, Contract, Text
 from nobluff.verification.policy import VerificationPlan, verify_snapshot
+from nobluff.workspace import Workspace
+from nobluff.workspace_api import workspace_router
 
 
 class APIAnalysisRequest(AnalysisRequest):
     repository: Text = Field(max_length=250)
     revision: Text = Field(max_length=200)
     comparison_revision: Text | None = Field(default=None, max_length=200)
+    source_revision: Text | None = Field(default=None, max_length=200)
+    source_repository: Text | None = Field(default=None, max_length=250)
     report_text: Text = Field(max_length=MAX_REPORT_CHARS)
 
-    @field_validator("repository")
+    @field_validator("repository", "source_repository")
     @classmethod
-    def github_repository_only(cls, value: str) -> str:
+    def github_repository_only(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         if "://" in value:
             url = urlsplit(value)
             if (
@@ -51,7 +58,7 @@ class APIAnalysisRequest(AnalysisRequest):
             raise ValueError("Repository name must identify a repository")
         return f"https://github.com/{value}"
 
-    @field_validator("revision", "comparison_revision")
+    @field_validator("revision", "comparison_revision", "source_revision")
     @classmethod
     def bounded_revision_label(cls, value: str | None) -> str | None:
         if value is not None and not re.fullmatch(r"[^\s\x00-\x1f]{1,200}", value):
@@ -101,13 +108,21 @@ class BodyLimitMiddleware:
         await self.app(scope, replay, send)
 
 
-def create_app(service: AnalysisService | None = None) -> FastAPI:
+def create_app(
+    service: AnalysisService | None = None, *, workspace=None, github=None
+) -> FastAPI:
     loader = None
+    if service is not None and workspace is not None:
+        service.workspace = workspace
     if service is None:
         loader = RepositoryLoader.from_env()
+        workspace = workspace or Workspace(
+            os.getenv("NOBLUFF_DB_PATH", ".nobluff/workspace.sqlite3")
+        )
         service = AnalysisService(
             OllamaSettings.from_env(),
             snapshot_loader=loader.load,
+            workspace=workspace,
             runner=verify_snapshot
             if os.getenv("NOBLUFF_ENABLE_VERIFICATION") == "1"
             else None,
@@ -128,7 +143,7 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Content-Type"],
         expose_headers=["Location", "X-NoBluff-Scope"],
     )
@@ -254,4 +269,7 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
         background.add_task(service.run_comparison, identifier, plan)
         return {"analysis_id": identifier, "status": "comparison_accepted"}
 
+    app.include_router(
+        workspace_router(service, workspace or service.workspace, github or GitHub())
+    )
     return app
