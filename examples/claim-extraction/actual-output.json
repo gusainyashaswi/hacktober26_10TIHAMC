@@ -1,0 +1,37 @@
+{
+  "model": "qwen3:8b",
+  "created_at": "2026-10-31T18:21:23.220349+00:00",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "The CSV exporter crashes when a customer name contains an emoji.",
+      "kind": "behavior",
+      "search_terms": [
+        "CSV exporter",
+        "crashes",
+        "emoji",
+        "customer name",
+        "export_csv"
+      ],
+      "reported_as": "assertion"
+    },
+    {
+      "id": "claim-2",
+      "text": "I think export_csv uses ASCII encoding.",
+      "kind": "cause",
+      "search_terms": [
+        "export_csv",
+        "ASCII encoding",
+        "ASCII",
+        "encoding",
+        "I think"
+      ],
+      "reported_as": "hypothesis"
+    }
+  ],
+  "attempts": 1,
+  "elapsed_ms": 8594,
+  "warnings": [
+    "Claims are extracted assertions or hypotheses, not verified findings."
+  ]
+}
