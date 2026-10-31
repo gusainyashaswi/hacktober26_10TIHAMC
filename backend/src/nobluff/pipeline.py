@@ -1,5 +1,6 @@
 """Bounded, single-user source investigations and approved controlled execution."""
 
+import hashlib
 from collections.abc import Callable
 from threading import Lock
 from uuid import uuid4
@@ -12,7 +13,14 @@ from nobluff.model import (
     extract_claims,
 )
 from nobluff.retrieval import Snapshot, SnapshotError, retrieve_evidence
-from nobluff.schemas import AnalysisReport, AnalysisRequest, Evidence, Finding
+from nobluff.schemas import (
+    AnalysisReport,
+    AnalysisRequest,
+    ApprovedTest,
+    Evidence,
+    Finding,
+)
+from nobluff.verification.comparison import compare_runs
 from nobluff.verification.policy import VerificationPlan, observed_expected_failure
 
 
@@ -132,7 +140,9 @@ class AnalysisService:
                 if self._active == identifier:
                     self._active = None
 
-    def admit_verification(self, identifier: str, plan: VerificationPlan) -> None:
+    def admit_verification(
+        self, identifier: str, plan: VerificationPlan, *, comparison: bool = False
+    ) -> None:
         with self._lock:
             report = self._reports.get(identifier)
             if report is None:
@@ -151,12 +161,23 @@ class AnalysisService:
                 )
             if plan.claim_id not in {c.id for c in report.claims}:
                 raise ValueError("Unknown claim for verification")
+            if comparison and (
+                not self._requests[identifier].comparison_revision or report.comparisons
+            ):
+                raise ValueError(
+                    "Supply a comparison revision and use a fresh analysis for each comparison"
+                )
             self._active = identifier
 
     def run_verification(self, identifier: str, plan: VerificationPlan) -> None:
         try:
             self._update(identifier, stage="verifying")
             run = self.runner(self._snapshots[identifier], plan)
+            if (
+                run.test_hash
+                != hashlib.sha256(plan.test_code.encode("utf-8")).hexdigest()
+            ):
+                raise ValueError("Execution hash differs from the approved test")
             report = self.get(identifier)
             new_evidence = []
             findings = report.findings
@@ -188,6 +209,15 @@ class AnalysisService:
                 identifier,
                 stage="complete",
                 executions=[*report.executions, run],
+                approved_tests=[
+                    *report.approved_tests,
+                    ApprovedTest(
+                        claim_id=plan.claim_id,
+                        test_hash=run.test_hash,
+                        test_code=plan.test_code,
+                        expected_failure=plan.expected_failure,
+                    ),
+                ],
                 evidence=[*report.evidence, *new_evidence],
                 findings=findings,
             )
@@ -198,6 +228,74 @@ class AnalysisService:
                 errors=[
                     "verification_error: Controlled verification failed to finish."
                 ],
+            )
+        finally:
+            with self._lock:
+                self._active = None
+
+    def run_comparison(self, identifier: str, plan: VerificationPlan) -> None:
+        try:
+            self._update(identifier, stage="loading")
+            request = self._requests[identifier]
+            after_snapshot = self.snapshot_loader(
+                request.repository, request.comparison_revision
+            )
+            self._update(
+                identifier, stage="verifying", comparison_revision=after_snapshot.commit
+            )
+            before = self.runner(self._snapshots[identifier], plan)
+            after = self.runner(after_snapshot, plan)
+            comparison = compare_runs(before, after, plan)
+            report = self.get(identifier)
+            evidence = [
+                Evidence(
+                    id=f"execution-{run.id}",
+                    kind="execution",
+                    revision=run.revision,
+                    execution_id=run.id,
+                    excerpt=f"Status: {run.status}\n{run.stdout}\n{run.stderr}",
+                )
+                for run in (before, after)
+                if run.status not in ("not_run", "blocked")
+            ]
+            findings = report.findings
+            if observed_expected_failure(before, plan):
+                findings = [
+                    Finding(
+                        claim_id=f.claim_id,
+                        assessment="supported",
+                        evidence_ids=[f"execution-{before.id}"],
+                        explanation="The approved test reproduced the declared exception on the original snapshot.",
+                        limitations=[
+                            "Limited to this reviewed test and recorded environment."
+                        ],
+                    )
+                    if f.claim_id == plan.claim_id
+                    else f
+                    for f in findings
+                ]
+            self._update(
+                identifier,
+                stage="complete",
+                executions=[*report.executions, before, after],
+                approved_tests=[
+                    *report.approved_tests,
+                    ApprovedTest(
+                        claim_id=plan.claim_id,
+                        test_hash=before.test_hash,
+                        test_code=plan.test_code,
+                        expected_failure=plan.expected_failure,
+                    ),
+                ],
+                evidence=[*report.evidence, *evidence],
+                findings=findings,
+                comparisons=[*report.comparisons, comparison],
+            )
+        except Exception:  # noqa: BLE001 -- isolate background work and always release admission
+            self._update(
+                identifier,
+                stage="error",
+                errors=["comparison_error: Controlled comparison could not finish."],
             )
         finally:
             with self._lock:
