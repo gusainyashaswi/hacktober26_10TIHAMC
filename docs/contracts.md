@@ -45,9 +45,12 @@ evidence references; inconclusive findings require limitations. One finding per
 claim; every claim requires a finding when stage is complete. Empty in-progress
 collections are allowed. No numeric confidence score is defined.
 
-Stages: queued, loading, extracting, retrieving, assessing, awaiting_verification,
+Stages: queued, loading, extracting, awaiting_evidence, retrieving, assessing, awaiting_verification,
 verifying, complete, error. They are serialized states, not an enforced state
 machine; orchestration owns transitions and completeness of actual work.
+
+The extraction API stops at awaiting_evidence. It has not loaded the repository,
+resolved revision labels, assessed claims or run reproductions. See api.md.
 
 Execution statuses: not_run, passed, failed, setup_error, timeout, blocked.
 Passed requires exit code zero; failed requires a nonzero code. Neither means a

@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/gusainyashaswi/hacktober26_10TIHAMC",
+  "revision": "15e2fff",
+  "report_text": "The CSV exporter crashes when a customer name contains an emoji. I think export_csv uses ASCII encoding.",
+  "comparison_revision": null
+}

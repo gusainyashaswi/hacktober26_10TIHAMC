@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "is_example": false,
+  "id": "56b19d51-4045-48b0-9d18-d5b106ca8e31",
+  "repository": "https://github.com/gusainyashaswi/hacktober26_10TIHAMC",
+  "revision": "15e2fff",
+  "comparison_revision": null,
+  "model": "qwen3:8b",
+  "stage": "awaiting_evidence",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "The CSV exporter crashes when a customer name contains an emoji.",
+      "kind": "behavior",
+      "search_terms": [
+        "CSV exporter",
+        "crash",
+        "emoji",
+        "customer name",
+        "export_csv"
+      ],
+      "reported_as": "assertion"
+    },
+    {
+      "id": "claim-2",
+      "text": "I think export_csv uses ASCII encoding.",
+      "kind": "cause",
+      "search_terms": [
+        "export_csv",
+        "ASCII encoding",
+        "encoding",
+        "ASCII",
+        "exporter"
+      ],
+      "reported_as": "hypothesis"
+    }
+  ],
+  "evidence": [],
+  "findings": [],
+  "executions": [],
+  "errors": []
+}

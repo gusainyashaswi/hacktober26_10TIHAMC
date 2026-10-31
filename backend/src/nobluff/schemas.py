@@ -14,6 +14,7 @@ Stage = Literal[
     "queued",
     "loading",
     "extracting",
+    "awaiting_evidence",
     "retrieving",
     "assessing",
     "awaiting_verification",
