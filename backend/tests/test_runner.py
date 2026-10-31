@@ -37,6 +37,7 @@ _CONTAINER_SRC = "/src"
 
 
 def _make_test_file(tmp_path: Path, content: str) -> Path:
+    tmp_path.chmod(0o755)  # Linux bind mounts preserve pytest owner-only directory permissions.
     f = tmp_path / "test_sample.py"
     f.write_text(textwrap.dedent(content))
     return f
@@ -383,7 +384,7 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
 def test_passing_test_returns_passed(tmp_path: Path) -> None:
     test_file = _make_test_file(tmp_path, "def test_always_pass(): assert True\n")
     result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
-    assert result.status == "passed"
+    assert result.status == "passed", result.stdout + result.stderr
     assert result.exit_code == 0
     assert len(result.test_hash) == 64
 
@@ -392,7 +393,7 @@ def test_passing_test_returns_passed(tmp_path: Path) -> None:
 def test_failing_test_returns_failed(tmp_path: Path) -> None:
     test_file = _make_test_file(tmp_path, "def test_always_fail(): assert False\n")
     result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
-    assert result.status == "failed"
+    assert result.status == "failed", result.stdout + result.stderr
     assert result.exit_code != 0
 
 
@@ -442,6 +443,7 @@ def test_nonexistent_image_returns_setup_error(tmp_path: Path) -> None:
 @pytest.mark.runner
 def test_whoami_confirms_non_root(tmp_path: Path) -> None:
     """Container must not run as root (uid != 0)."""
+    tmp_path.chmod(0o755)
     test_file = tmp_path / "test_whoami.py"
     test_file.write_text(
         textwrap.dedent("""\
@@ -451,4 +453,4 @@ def test_whoami_confirms_non_root(tmp_path: Path) -> None:
         """)
     )
     result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
-    assert result.status == "passed"
+    assert result.status == "passed", result.stdout + result.stderr
