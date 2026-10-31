@@ -153,3 +153,32 @@ def test_failed_loading_does_not_produce_verdict():
         report = client.get(response.headers["location"]).json()
         assert report["stage"] == "error"
         assert report["findings"] == []
+
+
+def test_invalid_assessment_fails_closed_without_blocking_reviewed_verification(
+    source_repo,
+):
+    from nobluff.model import ExtractionError
+    from test_verification_policy import make_service
+
+    service, original = make_service(source_repo, runner=None)
+
+    def rejected(*args):
+        raise ExtractionError("invalid_output", "Rejected structured response")
+
+    service.assessor = rejected
+    with TestClient(create_app(service)) as client:
+        identifier = client.post(
+            "/api/analyses",
+            json={
+                "repository": "example/fixture",
+                "revision": original,
+                "report_text": "unicode fails",
+            },
+        ).json()["id"]
+        report = client.get(f"/api/analyses/{identifier}").json()
+        assert report["stage"] == "complete"
+        assert report["findings"][0]["assessment"] == "inconclusive"
+        assert report["findings"][0]["evidence_ids"] == []
+        assert "rejected" in report["warnings"][0]
+        assert report["executions"] == []

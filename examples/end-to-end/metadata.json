@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-10-31T20:04:35.101071+00:00",
+  "synthetic_input": true,
+  "outputs": "actual local Qwen3-8B and Docker outputs; not manually authored verdicts",
+  "model": {
+    "name": "qwen3:8b",
+    "model": "qwen3:8b",
+    "modified_at": "2026-10-31T23:12:29.215266729+05:30",
+    "size": 5225388164,
+    "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen3",
+      "families": [
+        "qwen3"
+      ],
+      "parameter_size": "8.2B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 40960,
+      "embedding_length": 4096,
+      "runner": "ggml"
+    },
+    "capabilities": [
+      "completion",
+      "tools",
+      "thinking"
+    ]
+  },
+  "original": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "fix": "067dd573817f286e54cf93a397f89156a8942c51",
+  "fixture_directory": "/private/tmp/nobluff-live-fixture",
+  "runtime": "API exercised through FastAPI TestClient; real Ollama HTTP and real Docker; no fake model/runner",
+  "limitations": "Three tiny controlled cases are not a public-issue accuracy benchmark."
+}

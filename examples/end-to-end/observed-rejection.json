@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0",
+  "is_example": false,
+  "id": "8c95275b-82a6-482f-b30e-7d3393e4b18b",
+  "repository": "https://github.com/example/nobluff-fixture",
+  "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "comparison_revision": "067dd573817f286e54cf93a397f89156a8942c51",
+  "model": "qwen3:8b",
+  "stage": "error",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "When export_csv writes the row José to a file, it raises UnicodeEncodeError.",
+      "kind": "behavior",
+      "search_terms": [
+        "export_csv",
+        "UnicodeEncodeError",
+        "José",
+        "row",
+        "file"
+      ],
+      "reported_as": "assertion"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e-94eaa53e8789bd9b",
+      "kind": "source",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "exporter.py",
+      "start_line": 1,
+      "end_line": 3,
+      "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='ascii') as stream:\n        stream.write(','.join(rows))",
+      "execution_id": null
+    },
+    {
+      "id": "e-e6cd643e68acf9cd",
+      "kind": "documentation",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "README.md",
+      "start_line": 1,
+      "end_line": 1,
+      "excerpt": "export_csv writes rows to a file. Unicode customer names should be supported.",
+      "execution_id": null
+    }
+  ],
+  "findings": [],
+  "executions": [],
+  "approved_tests": [],
+  "comparisons": [],
+  "errors": [
+    "invalid_output: The model failed to return valid findings after two attempts."
+  ]
+}

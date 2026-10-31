@@ -1,0 +1,6 @@
+{
+  "repository": "example/nobluff-fixture",
+  "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "comparison_revision": "067dd573817f286e54cf93a397f89156a8942c51",
+  "report_text": "When export_csv writes the row José to a file, it raises UnicodeEncodeError."
+}
