@@ -43,6 +43,7 @@ def _require_runner_image() -> str:
 
 
 def _make_test_file(tmp_path: Path, content: str) -> Path:
+    tmp_path.chmod(0o755)  # Linux bind mounts preserve pytest owner-only directory permissions.
     f = tmp_path / "test_sample.py"
     f.write_text(textwrap.dedent(content))
     return f
@@ -219,28 +220,46 @@ def test_build_command_has_resource_limits(tmp_path: Path) -> None:
 
 
 def test_classify_passed() -> None:
-    assert _classify(returncode=0, timed_out=False, setup_error=False, blocked=False) == "passed"
+    assert (
+        _classify(returncode=0, timed_out=False, setup_error=False, blocked=False)
+        == "passed"
+    )
 
 
 def test_classify_failed() -> None:
-    assert _classify(returncode=1, timed_out=False, setup_error=False, blocked=False) == "failed"
+    assert (
+        _classify(returncode=1, timed_out=False, setup_error=False, blocked=False)
+        == "failed"
+    )
 
 
 def test_classify_timeout() -> None:
-    assert _classify(returncode=None, timed_out=True, setup_error=False, blocked=False) == "timeout"
+    assert (
+        _classify(returncode=None, timed_out=True, setup_error=False, blocked=False)
+        == "timeout"
+    )
 
 
 def test_classify_setup_error() -> None:
-    assert _classify(returncode=None, timed_out=False, setup_error=True, blocked=False) == "setup_error"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=True, blocked=False)
+        == "setup_error"
+    )
 
 
 def test_classify_blocked() -> None:
-    assert _classify(returncode=None, timed_out=False, setup_error=False, blocked=True) == "blocked"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=False, blocked=True)
+        == "blocked"
+    )
 
 
 def test_classify_blocked_wins_over_setup_error() -> None:
     # blocked takes highest priority
-    assert _classify(returncode=None, timed_out=False, setup_error=True, blocked=True) == "blocked"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=True, blocked=True)
+        == "blocked"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -304,7 +323,7 @@ def test_image_read_from_environment_when_argument_omitted(
         result = run_verification(tmp_path, test_file, timeout_seconds=30)
         assert result.environment.get("image") == env_image
         if mock_popen.called:
-            assert env_image in mock_popen.call_args[0][0]
+            assert env_image in mock_popen.call_args_list[0][0][0]
 
 
 def test_image_argument_overrides_environment_variable(
@@ -325,7 +344,7 @@ def test_image_argument_overrides_environment_variable(
         )
         assert result.environment.get("image") == arg_image
         if mock_popen.called:
-            assert arg_image in mock_popen.call_args[0][0]
+            assert arg_image in mock_popen.call_args_list[0][0][0]
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +410,9 @@ def test_run_verification_command_is_list(tmp_path: Path) -> None:
 
     # Patch docker found, but Popen raises OSError.
     with (
-        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"
+        ),
         patch(
             "nobluff.verification.runner.subprocess.Popen",
             side_effect=OSError("simulated"),
@@ -411,7 +432,9 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
     custom_image = "my-custom-runner:latest"
 
     with (
-        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"
+        ),
         patch(
             "nobluff.verification.runner.subprocess.Popen",
             side_effect=OSError("simulated"),
@@ -420,7 +443,7 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
         run_verification(tmp_path, test_file, image=custom_image, timeout_seconds=30)
         # Inspect the call args to verify image is in the command list
         if mock_popen.called:
-            call_args = mock_popen.call_args[0][0]
+            call_args = mock_popen.call_args_list[0][0][0]
             assert custom_image in call_args
 
 
@@ -434,7 +457,7 @@ def test_passing_test_returns_passed(tmp_path: Path) -> None:
     _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_always_pass(): assert True\n")
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert result.status == "passed", result.stdout + result.stderr
     assert result.exit_code == 0
     assert len(result.test_hash) == 64
 
@@ -444,7 +467,7 @@ def test_failing_test_returns_failed(tmp_path: Path) -> None:
     _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_always_fail(): assert False\n")
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "failed"
+    assert result.status == "failed", result.stdout + result.stderr
     assert result.exit_code != 0
 
 
@@ -456,7 +479,8 @@ def test_syntax_error_test_returns_failed(tmp_path: Path) -> None:
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
     # Pytest reports collection errors as exit code 4 (ERROR), still "failed"
     assert result.status in ("failed", "setup_error")
-    assert result.exit_code not in (0, None)
+    assert result.status == "setup_error"
+    assert result.exit_code is None
 
 
 @pytest.mark.runner
@@ -497,6 +521,7 @@ def test_nonexistent_image_returns_setup_error(tmp_path: Path) -> None:
 def test_whoami_confirms_non_root(tmp_path: Path) -> None:
     """Container must not run as root (uid != 0)."""
     _require_runner_image()
+    tmp_path.chmod(0o755)
     test_file = tmp_path / "test_whoami.py"
     test_file.write_text(
         textwrap.dedent("""\
@@ -506,7 +531,7 @@ def test_whoami_confirms_non_root(tmp_path: Path) -> None:
         """)
     )
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert result.status == "passed", result.stdout + result.stderr
 
 
 @pytest.mark.runner
@@ -517,5 +542,5 @@ def test_runner_executes_with_monkeypatched_image(
     monkeypatch.setenv("NOBLUFF_RUNNER_IMAGE", img)
     test_file = _make_test_file(tmp_path, "def test_pass(): assert True\n")
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert result.status == "passed", result.stdout + result.stderr
     assert result.environment.get("image") == img

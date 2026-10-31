@@ -1,5 +1,7 @@
 """Shared, JSON-serializable contracts. Validation is not evidence of truth."""
 
+import hashlib
+import re
 from pathlib import PurePosixPath
 from typing import Annotated, Literal, Self
 
@@ -119,6 +121,33 @@ class ExecutionResult(Contract):
         return self
 
 
+class ApprovedTest(Contract):
+    claim_id: Text
+    test_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    test_code: str = Field(min_length=1, max_length=8000)
+    expected_failure: Text | None = None
+
+    @model_validator(mode="after")
+    def check_hash(self) -> Self:
+        if hashlib.sha256(self.test_code.encode("utf-8")).hexdigest() != self.test_hash:
+            raise ValueError("approved test hash does not match its bytes")
+        return self
+
+
+class ComparisonResult(Contract):
+    claim_id: Text
+    original_execution_id: Text
+    comparison_execution_id: Text
+    test_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal[
+        "fix_verified_for_test",
+        "not_reproduced_for_test",
+        "still_failing",
+        "inconclusive",
+    ]
+    limitations: list[Text] = Field(min_length=1)
+
+
 class AnalysisReport(Contract):
     schema_version: Literal["1.0"] = "1.0"
     is_example: bool = False
@@ -132,6 +161,8 @@ class AnalysisReport(Contract):
     evidence: list[Evidence] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
     executions: list[ExecutionResult] = Field(default_factory=list)
+    approved_tests: list[ApprovedTest] = Field(default_factory=list)
+    comparisons: list[ComparisonResult] = Field(default_factory=list)
     errors: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -168,4 +199,28 @@ class AnalysisReport(Contract):
                     )
         if any(run.revision not in revisions for run in self.executions):
             raise ValueError("execution revision is outside this analysis")
+        for item in self.comparisons:
+            before = executions.get(item.original_execution_id)
+            after = executions.get(item.comparison_execution_id)
+            if item.claim_id not in claims or before is None or after is None:
+                raise ValueError("comparison references unknown claim or execution")
+            if (
+                before.revision != self.revision
+                or after.revision != self.comparison_revision
+            ):
+                raise ValueError("comparison executions have incorrect revisions")
+            if before.test_hash != item.test_hash or after.test_hash != item.test_hash:
+                raise ValueError("comparison requires identical test hashes")
+            if item.status == "fix_verified_for_test" and not (
+                before.status == "failed"
+                and after.status == "passed"
+                and before.revision != after.revision
+                and re.fullmatch(
+                    r"sha256:[0-9a-f]{64}", before.environment.get("image", "")
+                )
+                and before.environment.get("image") == after.environment.get("image")
+            ):
+                raise ValueError(
+                    "verified comparison requires failure then pass in one immutable image"
+                )
         return self

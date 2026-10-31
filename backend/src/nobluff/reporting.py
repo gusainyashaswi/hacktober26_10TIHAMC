@@ -78,6 +78,21 @@ def export_report(report: AnalysisReport, format: str) -> str:
             "Errors:",
             _block(run.stderr),
         ]
+    for test in report.approved_tests:
+        lines += [
+            "",
+            "## Approved reproduction test",
+            _block(
+                f"Claim: {test.claim_id}\nSHA256: {test.test_hash}\nExpected exception: {test.expected_failure}"
+            ),
+            _block(test.test_code),
+        ]
+    for comparison in report.comparisons:
+        lines += [
+            "",
+            "## Controlled before/after comparison",
+            _block(comparison.model_dump_json(indent=2)),
+        ]
     if report.errors:
         lines += ["", "## Analysis errors", _block("\n".join(report.errors))]
     return "\n\n".join(lines) + "\n"
