@@ -1,4 +1,4 @@
-"""Single-user extraction jobs. Retrieval and assessment are not implemented here."""
+"""Bounded, single-user source investigations and approved controlled execution."""
 
 from collections.abc import Callable
 from threading import Lock
@@ -12,7 +12,8 @@ from nobluff.model import (
     extract_claims,
 )
 from nobluff.retrieval import Snapshot, SnapshotError, retrieve_evidence
-from nobluff.schemas import AnalysisReport, AnalysisRequest
+from nobluff.schemas import AnalysisReport, AnalysisRequest, Evidence, Finding
+from nobluff.verification.policy import VerificationPlan, observed_expected_failure
 
 
 class CapacityError(RuntimeError):
@@ -34,6 +35,7 @@ class AnalysisService:
         max_reports: int = 100,
         snapshot_loader: Callable[[str, str], Snapshot] | None = None,
         assessor: Callable = assess_claims,
+        runner: Callable | None = None,
     ):
         if max_reports < 1:
             raise ValueError("max_reports must be positive")
@@ -42,6 +44,7 @@ class AnalysisService:
         self.max_reports = max_reports
         self.snapshot_loader = snapshot_loader
         self.assessor = assessor
+        self.runner = runner
         self._snapshots: dict[str, Snapshot] = {}
         self._requests: dict[str, AnalysisRequest] = {}
         self._reports: dict[str, AnalysisReport] = {}
@@ -128,3 +131,74 @@ class AnalysisService:
             with self._lock:
                 if self._active == identifier:
                     self._active = None
+
+    def admit_verification(self, identifier: str, plan: VerificationPlan) -> None:
+        with self._lock:
+            report = self._reports.get(identifier)
+            if report is None:
+                raise KeyError(identifier)
+            if self.runner is None:
+                raise NotImplementedError(
+                    "Verification must be enabled by the local operator"
+                )
+            if (
+                self._active is not None
+                or report.stage != "complete"
+                or identifier not in self._snapshots
+            ):
+                raise CapacityError(
+                    "Wait for a complete source investigation before verification"
+                )
+            if plan.claim_id not in {c.id for c in report.claims}:
+                raise ValueError("Unknown claim for verification")
+            self._active = identifier
+
+    def run_verification(self, identifier: str, plan: VerificationPlan) -> None:
+        try:
+            self._update(identifier, stage="verifying")
+            run = self.runner(self._snapshots[identifier], plan)
+            report = self.get(identifier)
+            new_evidence = []
+            findings = report.findings
+            if run.status not in ("not_run", "blocked"):
+                item = Evidence(
+                    id=f"execution-{run.id}",
+                    kind="execution",
+                    revision=run.revision,
+                    execution_id=run.id,
+                    excerpt=f"Status: {run.status}\n{run.stdout}\n{run.stderr}",
+                )
+                new_evidence.append(item)
+                if observed_expected_failure(run, plan):
+                    findings = [
+                        Finding(
+                            claim_id=f.claim_id,
+                            assessment="supported",
+                            evidence_ids=[item.id],
+                            explanation="The approved test failed and its output contains the declared expected failure.",
+                            limitations=[
+                                "Supports only the approved test and environment; review whether the test represents the claim."
+                            ],
+                        )
+                        if f.claim_id == plan.claim_id
+                        else f
+                        for f in findings
+                    ]
+            self._update(
+                identifier,
+                stage="complete",
+                executions=[*report.executions, run],
+                evidence=[*report.evidence, *new_evidence],
+                findings=findings,
+            )
+        except Exception:  # noqa: BLE001 -- background boundary must release admission and record failure
+            self._update(
+                identifier,
+                stage="error",
+                errors=[
+                    "verification_error: Controlled verification failed to finish."
+                ],
+            )
+        finally:
+            with self._lock:
+                self._active = None
