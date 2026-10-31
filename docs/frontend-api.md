@@ -5,7 +5,7 @@ Base URL defaults to `http://127.0.0.1:8000`. Keep the server on loopback. Publi
 ## Connect once
 
 - `GET /api/repositories` → `{items:[{id,full_name,url,default_branch,connected_at}]}`.
-- `POST /api/repositories` with `{repository:"owner/repo"}` or a GitHub URL → connected repository, HTTP 201. Reconnecting is idempotent. Maximum 20 connected repositories.
+- `POST /api/repositories` with `{repository:"owner/repo"}` or a GitHub URL → connected repository, HTTP 201. Reconnecting is idempotent. Maximum 20 connected repositories; a 21st new repository returns 409.
 - `DELETE /api/repositories/{id}` → 204. Disconnect removes the saved connection; investigation records remain available in history.
 
 SQLite defaults to `.nobluff/workspace.sqlite3`; override with `NOBLUFF_DB_PATH`. Saved connections and reports survive restarts. GitHub tokens are not saved. Repositories refresh on explicit requests; no webhook/background sync is claimed.

@@ -54,7 +54,7 @@ def workspace_router(service, store, github):
             r["url"].lower() == url.lower() for r in existing
         ):
             raise HTTPException(
-                429, "Disconnect a repository before adding more than 20."
+                409, "Disconnect a repository before adding more than 20."
             )
         metadata = call(
             lambda: github.repository(url.removeprefix("https://github.com/"))
