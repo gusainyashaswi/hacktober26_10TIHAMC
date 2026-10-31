@@ -33,7 +33,7 @@ def test_evidence_maps_commit_to_revision_and_text_to_excerpt(repo):
     assert evidence
     for ev in evidence:
         assert ev.revision == snap.commit
-        assert ev.kind == "source"
+        assert ev.kind == ("test" if ev.path.startswith("tests/") else "source")
         source = snap.get(ev.path).lines[ev.start_line - 1 : ev.end_line]
         assert ev.excerpt == "\n".join(source)
         assert ev.execution_id is None
@@ -58,10 +58,13 @@ def test_fix_revision_evidence_is_tagged_with_fix_commit(repo):
     assert {e.revision for e in fix_evidence} == {fix.commit}
 
 
-def test_claim_without_search_terms_returns_no_evidence(repo):
+def test_claim_text_fallback_retrieves_verified_evidence(repo):
     path, commits = repo
     snap = load_local_snapshot(path, commits["original"])
-    assert retrieve_evidence(snap, [make_claim([])]) == []
+    evidence = retrieve_evidence(snap, [make_claim([])])
+    assert evidence
+    assert any("average" in ev.excerpt for ev in evidence)
+    assert all(ev.excerpt == "\n".join(snap.get(ev.path).lines[ev.start_line-1:ev.end_line]) for ev in evidence)
 
 
 def test_unmatched_term_returns_no_evidence(repo):

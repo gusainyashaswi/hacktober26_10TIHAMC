@@ -4,12 +4,12 @@ import pytest
 from nobluff.retrieval import (
     Excerpt,
     SnapshotError,
-    _git,
     load_local_snapshot,
     retrieve_evidence,
     safe_path,
     verify_excerpt,
 )
+from nobluff.retrieval.core import _git
 from nobluff.schemas import Claim, Evidence
 
 
