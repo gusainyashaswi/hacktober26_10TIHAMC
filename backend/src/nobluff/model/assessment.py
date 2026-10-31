@@ -1,6 +1,7 @@
 """Assess one snapshot's supplied file evidence; never execute code."""
 
 import json
+import re
 from datetime import UTC, datetime
 from time import monotonic
 from typing import Literal
@@ -129,11 +130,16 @@ def assess_claims(
     if client is None:
         with httpx.Client(trust_env=False) as owned:
             return assess_claims(claims, evidence, settings, client=owned)
+    schema = AssessmentOutput.model_json_schema()
+    # Ollama must emit citation/limitation fields even though old stored Finding JSON
+    # can omit optional defaults. Conditional validators still reject unsupported verdicts.
+    finding_schema = schema["$defs"]["Finding"]
+    finding_schema["required"] = list(finding_schema["properties"])
     payload = {
         "model": settings.model,
         "stream": False,
         "think": False,
-        "format": AssessmentOutput.model_json_schema(),
+        "format": schema,
         "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 2048},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -179,6 +185,22 @@ def assess_claims(
         findings = []
         for claim in claims:
             finding = by_claim[claim.id]
+            runtime_language = re.search(
+                r"\b(?:raises?|crash(?:es|ed)?|fail(?:s|ed|ure)?|hangs?|timeouts?|intermittent(?:ly)?|\w*(?:error|exception))\b",
+                claim.text,
+                re.IGNORECASE,
+            )
+            if claim.kind in ("cause", "fix") or runtime_language:
+                finding = Finding(
+                    claim_id=claim.id,
+                    assessment="inconclusive",
+                    evidence_ids=finding.evidence_ids,
+                    explanation="This claim requires runtime observations or before/after evidence; source excerpts alone are insufficient.",
+                    limitations=[
+                        "A conservative runtime-language gate withheld the source verdict. This heuristic does not detect every runtime claim."
+                    ],
+                    suggested_next_step="Review and approve a focused reproduction test in the controlled environment.",
+                )
             if SOURCE_LIMIT not in finding.limitations:
                 finding = Finding.model_validate(
                     finding.model_dump()

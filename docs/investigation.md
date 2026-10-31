@@ -27,3 +27,7 @@ An explicitly injected AnalysisService without a snapshot_loader retains the
 extraction-only mode for tests or embedders. Default create_app enables the real
 source investigation. Run one local server worker; source workspaces are cleaned
 when the application lifespan ends.
+
+When two model assessment responses fail schema/citation validation, the claim remains explicitly inconclusive with a warning. Retrieved source remains inspectable and a reviewed reproduction test can still be approved. Transport failures remain visible errors. The system never repairs a missing citation by inventing one or accepts an invalid verdict.
+
+A conservative English-language gate withholds conclusive source verdicts for cause/fix claims and claims containing execution-sensitive terms such as raises, crash, fail, intermittent, or an exception class. The model can misinterpret a valid excerpt; a valid citation does not make its reasoning correct. This gate is a heuristic, not a complete semantic detector. Such claims remain inconclusive until controlled evidence is available. Human review remains necessary for other model interpretations.

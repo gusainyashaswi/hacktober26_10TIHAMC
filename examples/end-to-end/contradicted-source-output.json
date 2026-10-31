@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "is_example": false,
+  "id": "df3a1ba8-d0f1-441d-9513-5458c226e16e",
+  "repository": "https://github.com/example/nobluff-fixture",
+  "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "comparison_revision": "067dd573817f286e54cf93a397f89156a8942c51",
+  "model": "qwen3:8b",
+  "stage": "complete",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "export_csv opens output files using UTF-8 encoding.",
+      "kind": "behavior",
+      "search_terms": [
+        "export_csv",
+        "UTF-8",
+        "encoding",
+        "output files"
+      ],
+      "reported_as": "assertion"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e-94eaa53e8789bd9b",
+      "kind": "source",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "exporter.py",
+      "start_line": 1,
+      "end_line": 3,
+      "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='ascii') as stream:\n        stream.write(','.join(rows))",
+      "execution_id": null
+    },
+    {
+      "id": "e-e6cd643e68acf9cd",
+      "kind": "documentation",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "README.md",
+      "start_line": 1,
+      "end_line": 1,
+      "excerpt": "export_csv writes rows to a file. Unicode customer names should be supported.",
+      "execution_id": null
+    }
+  ],
+  "findings": [
+    {
+      "claim_id": "claim-1",
+      "assessment": "contradicted",
+      "evidence_ids": [
+        "e-94eaa53e8789bd9b"
+      ],
+      "explanation": "The source code for export_csv explicitly uses 'ascii' encoding, which directly contradicts the claim that it uses UTF-8 encoding for output files.",
+      "limitations": [
+        "Static source review only; no reproduction was executed."
+      ],
+      "suggested_next_step": "Check the source code for any other instances of export_csv that may use different encoding settings."
+    }
+  ],
+  "executions": [],
+  "approved_tests": [],
+  "comparisons": [],
+  "errors": [],
+  "warnings": []
+}

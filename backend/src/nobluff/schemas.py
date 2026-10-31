@@ -168,6 +168,7 @@ class AnalysisReport(Contract):
     approved_tests: list[ApprovedTest] = Field(default_factory=list)
     comparisons: list[ComparisonResult] = Field(default_factory=list)
     errors: list[Text] = Field(default_factory=list)
+    warnings: list[Text] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_references(self) -> Self:

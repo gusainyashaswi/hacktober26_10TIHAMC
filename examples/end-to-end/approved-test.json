@@ -1,0 +1,6 @@
+{
+  "claim_id": "claim-1",
+  "test_code": "from exporter import export_csv\ndef test_unicode(tmp_path):\n    output = tmp_path / 'out.csv'\n    export_csv(output, ['José'])\n    assert output.read_text(encoding='utf-8') == 'José'\n",
+  "approved": true,
+  "expected_failure": "UnicodeEncodeError"
+}
