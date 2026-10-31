@@ -3,16 +3,17 @@
 import re
 from urllib.parse import urlsplit
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import Field, field_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from nobluff.model import OllamaSettings
 from nobluff.model.extraction import MAX_REPORT_CHARS
 from nobluff.pipeline import AnalysisService, CapacityError
+from nobluff.reporting import export_report
 from nobluff.schemas import AnalysisReport, AnalysisRequest, Contract, Text
 
 
@@ -167,6 +168,23 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
                 status_code=404, detail="Analysis not found in this server process."
             )
         return report
+
+    @app.get("/api/analyses/{identifier}/export")
+    def download(
+        identifier: str,
+        format: str = Query(default="json", pattern="^(json|markdown)$"),
+    ):
+        report = service.get(identifier)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        extension = "json" if format == "json" else "md"
+        return Response(
+            export_report(report, format),
+            media_type="application/json" if format == "json" else "text/markdown",
+            headers={
+                "Content-Disposition": f'attachment; filename="nobluff-report.{extension}"'
+            },
+        )
 
     @app.post("/api/analyses/{identifier}/verification", status_code=501)
     def verification_unavailable(identifier: str):
