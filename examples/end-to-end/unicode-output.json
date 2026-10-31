@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "is_example": false,
+  "id": "de0b6b83-da61-44ba-a4cc-3b04fae3771e",
+  "repository": "https://github.com/example/nobluff-fixture",
+  "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "comparison_revision": "067dd573817f286e54cf93a397f89156a8942c51",
+  "model": "qwen3:8b",
+  "stage": "complete",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "When export_csv writes the row José to a file, it raises UnicodeEncodeError.",
+      "kind": "behavior",
+      "search_terms": [
+        "export_csv",
+        "UnicodeEncodeError",
+        "José",
+        "row",
+        "file"
+      ],
+      "reported_as": "assertion"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e-94eaa53e8789bd9b",
+      "kind": "source",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "exporter.py",
+      "start_line": 1,
+      "end_line": 3,
+      "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='ascii') as stream:\n        stream.write(','.join(rows))",
+      "execution_id": null
+    },
+    {
+      "id": "e-e6cd643e68acf9cd",
+      "kind": "documentation",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "README.md",
+      "start_line": 1,
+      "end_line": 1,
+      "excerpt": "export_csv writes rows to a file. Unicode customer names should be supported.",
+      "execution_id": null
+    },
+    {
+      "id": "execution-bb251faf-bc3a-444e-a572-74fad31b4fea",
+      "kind": "execution",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": null,
+      "start_line": null,
+      "end_line": null,
+      "excerpt": "Status: failed\n============================= test session starts ==============================\nplatform linux -- Python 3.11.9, pytest-8.3.5, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: /tmp/.pytest_cache\nrootdir: /src/_nobluff_reproduction\ncollecting ... collected 1 item\n\n../src/_nobluff_reproduction/test_approved.py::test_unicode FAILED       [100%]\n\n=================================== FAILURES ===================================\n_________________________________ test_unicode _________________________________\n/src/_nobluff_reproduction/test_approved.py:4: in test_unicode\n    export_csv(output, ['José'])\n/src/exporter.py:3: in export_csv\n    stream.write(','.join(rows))\nE   UnicodeEncodeError: 'ascii' codec can't encode character '\\xe9' in position 3: ordinal not in range(128)\n=========================== short test summary info ============================\nFAILED ../src/_nobluff_reproduction/test_approved.py::test_unicode - UnicodeE...\n============================== 1 failed in 0.01s ===============================\n\n",
+      "execution_id": "bb251faf-bc3a-444e-a572-74fad31b4fea"
+    },
+    {
+      "id": "execution-103c89e9-64a6-4365-8778-eeea5c775117",
+      "kind": "execution",
+      "revision": "067dd573817f286e54cf93a397f89156a8942c51",
+      "path": null,
+      "start_line": null,
+      "end_line": null,
+      "excerpt": "Status: passed\n============================= test session starts ==============================\nplatform linux -- Python 3.11.9, pytest-8.3.5, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: /tmp/.pytest_cache\nrootdir: /src/_nobluff_reproduction\ncollecting ... collected 1 item\n\n../src/_nobluff_reproduction/test_approved.py::test_unicode PASSED       [100%]\n\n============================== 1 passed in 0.00s ===============================\n\n",
+      "execution_id": "103c89e9-64a6-4365-8778-eeea5c775117"
+    }
+  ],
+  "findings": [
+    {
+      "claim_id": "claim-1",
+      "assessment": "supported",
+      "evidence_ids": [
+        "execution-bb251faf-bc3a-444e-a572-74fad31b4fea"
+      ],
+      "explanation": "The approved test reproduced the declared exception on the original snapshot.",
+      "limitations": [
+        "Limited to this reviewed test and recorded environment."
+      ],
+      "suggested_next_step": null
+    }
+  ],
+  "executions": [
+    {
+      "id": "bb251faf-bc3a-444e-a572-74fad31b4fea",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "test_hash": "b4d68e541df68e723546ac033fa136582d72bb162507e74891e9079a0d08433c",
+      "command": [
+        "docker",
+        "run",
+        "--pull=never",
+        "--rm",
+        "--name",
+        "nobluff-runner-bb251faf-bc3a-444e-a572-74fad31b4fea",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory-swap",
+        "256m",
+        "--env",
+        "PYTHONPATH=/src:/src/src",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "--env",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
+        "--user",
+        "runner",
+        "--cpus",
+        "1",
+        "--memory",
+        "256m",
+        "--pids-limit",
+        "64",
+        "--tmpfs",
+        "/tmp",
+        "--mount",
+        "type=bind,source=/private/var/folders/p7/7hxh80r95vx_ksvtcfjr37xh0000gn/T/nobluff-approved-9jcn9r99,target=/src,readonly",
+        "sha256:fc2e0432efc12d63e43b2b66349cde0d1f841e9ad77fb169d8e255a76b26a04d",
+        "python",
+        "-m",
+        "pytest",
+        "/src/_nobluff_reproduction/test_approved.py",
+        "-o",
+        "cache_dir=/tmp/.pytest_cache",
+        "-v",
+        "--tb=short"
+      ],
+      "environment": {
+        "image": "sha256:fc2e0432efc12d63e43b2b66349cde0d1f841e9ad77fb169d8e255a76b26a04d",
+        "timeout_seconds": "15"
+      },
+      "status": "failed",
+      "exit_code": 1,
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.9, pytest-8.3.5, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: /tmp/.pytest_cache\nrootdir: /src/_nobluff_reproduction\ncollecting ... collected 1 item\n\n../src/_nobluff_reproduction/test_approved.py::test_unicode FAILED       [100%]\n\n=================================== FAILURES ===================================\n_________________________________ test_unicode _________________________________\n/src/_nobluff_reproduction/test_approved.py:4: in test_unicode\n    export_csv(output, ['José'])\n/src/exporter.py:3: in export_csv\n    stream.write(','.join(rows))\nE   UnicodeEncodeError: 'ascii' codec can't encode character '\\xe9' in position 3: ordinal not in range(128)\n=========================== short test summary info ============================\nFAILED ../src/_nobluff_reproduction/test_approved.py::test_unicode - UnicodeE...\n============================== 1 failed in 0.01s ===============================\n",
+      "stderr": "",
+      "duration_ms": 1391
+    },
+    {
+      "id": "103c89e9-64a6-4365-8778-eeea5c775117",
+      "revision": "067dd573817f286e54cf93a397f89156a8942c51",
+      "test_hash": "b4d68e541df68e723546ac033fa136582d72bb162507e74891e9079a0d08433c",
+      "command": [
+        "docker",
+        "run",
+        "--pull=never",
+        "--rm",
+        "--name",
+        "nobluff-runner-103c89e9-64a6-4365-8778-eeea5c775117",
+        "--network",
+        "none",
+        "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory-swap",
+        "256m",
+        "--env",
+        "PYTHONPATH=/src:/src/src",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "--env",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
+        "--user",
+        "runner",
+        "--cpus",
+        "1",
+        "--memory",
+        "256m",
+        "--pids-limit",
+        "64",
+        "--tmpfs",
+        "/tmp",
+        "--mount",
+        "type=bind,source=/private/var/folders/p7/7hxh80r95vx_ksvtcfjr37xh0000gn/T/nobluff-approved-kii2_ttg,target=/src,readonly",
+        "sha256:fc2e0432efc12d63e43b2b66349cde0d1f841e9ad77fb169d8e255a76b26a04d",
+        "python",
+        "-m",
+        "pytest",
+        "/src/_nobluff_reproduction/test_approved.py",
+        "-o",
+        "cache_dir=/tmp/.pytest_cache",
+        "-v",
+        "--tb=short"
+      ],
+      "environment": {
+        "image": "sha256:fc2e0432efc12d63e43b2b66349cde0d1f841e9ad77fb169d8e255a76b26a04d",
+        "timeout_seconds": "15"
+      },
+      "status": "passed",
+      "exit_code": 0,
+      "stdout": "============================= test session starts ==============================\nplatform linux -- Python 3.11.9, pytest-8.3.5, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: /tmp/.pytest_cache\nrootdir: /src/_nobluff_reproduction\ncollecting ... collected 1 item\n\n../src/_nobluff_reproduction/test_approved.py::test_unicode PASSED       [100%]\n\n============================== 1 passed in 0.00s ===============================\n",
+      "stderr": "",
+      "duration_ms": 190
+    }
+  ],
+  "approved_tests": [
+    {
+      "claim_id": "claim-1",
+      "test_hash": "b4d68e541df68e723546ac033fa136582d72bb162507e74891e9079a0d08433c",
+      "test_code": "from exporter import export_csv\ndef test_unicode(tmp_path):\n    output = tmp_path / 'out.csv'\n    export_csv(output, ['José'])\n    assert output.read_text(encoding='utf-8') == 'José'\n",
+      "expected_failure": "UnicodeEncodeError"
+    }
+  ],
+  "comparisons": [
+    {
+      "claim_id": "claim-1",
+      "original_execution_id": "bb251faf-bc3a-444e-a572-74fad31b4fea",
+      "comparison_execution_id": "103c89e9-64a6-4365-8778-eeea5c775117",
+      "test_hash": "b4d68e541df68e723546ac033fa136582d72bb162507e74891e9079a0d08433c",
+      "status": "fix_verified_for_test",
+      "limitations": [
+        "Verdict applies only to the approved test, selected snapshots, and recorded environment.",
+        "A passing test does not prove a complete fix; a failing test does not establish the root cause."
+      ]
+    }
+  ],
+  "errors": [],
+  "warnings": []
+}

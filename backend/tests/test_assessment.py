@@ -243,3 +243,14 @@ def test_live_supported_contradicted_and_inconclusive():
         "claim-utf8": "supported",
         "claim-runtime": "inconclusive",
     }
+
+
+@pytest.mark.parametrize(('text','kind'), [('export_csv raises UnicodeEncodeError.', 'behavior'),
+    ('The tool intermittently crashes.', 'behavior'), ('The database causes the issue.', 'cause'),
+    ('The proposed change fixes the issue.', 'fix')])
+def test_source_model_cannot_conclusively_verdict_runtime_or_fix_claims(evidence, text, kind):
+    claims = [Claim(id='c1', text=text, kind=kind)]
+    result = run(claims, evidence, lambda request: httpx.Response(200, json=envelope([finding()])))
+    assert result.findings[0].assessment == 'inconclusive'
+    assert 'runtime' in result.findings[0].explanation
+    assert SOURCE_LIMIT in result.findings[0].limitations

@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "is_example": false,
+  "id": "c2477bb7-9cc6-4c3e-8ac8-87e0235c4b25",
+  "repository": "https://github.com/example/nobluff-fixture",
+  "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+  "comparison_revision": "067dd573817f286e54cf93a397f89156a8942c51",
+  "model": "qwen3:8b",
+  "stage": "complete",
+  "claims": [
+    {
+      "id": "claim-1",
+      "text": "I suspect export_csv intermittently fails because a remote database connection is unavailable.",
+      "kind": "cause",
+      "search_terms": [
+        "export_csv",
+        "remote database connection",
+        "unavailable",
+        "intermittently fails"
+      ],
+      "reported_as": "hypothesis"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e-94eaa53e8789bd9b",
+      "kind": "source",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "exporter.py",
+      "start_line": 1,
+      "end_line": 3,
+      "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='ascii') as stream:\n        stream.write(','.join(rows))",
+      "execution_id": null
+    },
+    {
+      "id": "e-e6cd643e68acf9cd",
+      "kind": "documentation",
+      "revision": "53216faaf4c608e8dc06d25e52a77423ec3184cf",
+      "path": "README.md",
+      "start_line": 1,
+      "end_line": 1,
+      "excerpt": "export_csv writes rows to a file. Unicode customer names should be supported.",
+      "execution_id": null
+    }
+  ],
+  "findings": [
+    {
+      "claim_id": "claim-1",
+      "assessment": "inconclusive",
+      "evidence_ids": [
+        "e-94eaa53e8789bd9b",
+        "e-e6cd643e68acf9cd"
+      ],
+      "explanation": "This claim requires runtime observations or before/after evidence; source excerpts alone are insufficient.",
+      "limitations": [
+        "A conservative runtime-language gate withheld the source verdict. This heuristic does not detect every runtime claim.",
+        "Static source review only; no reproduction was executed."
+      ],
+      "suggested_next_step": "Review and approve a focused reproduction test in the controlled environment."
+    }
+  ],
+  "executions": [],
+  "approved_tests": [],
+  "comparisons": [],
+  "errors": [],
+  "warnings": []
+}

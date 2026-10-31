@@ -153,6 +153,7 @@ class AnalysisService:
             if snapshot is not None:
                 all_evidence = {}
                 findings = []
+                warnings = []
                 for claim in result.claims:
                     self._update(identifier, stage="retrieving")
                     snippets = retrieve_evidence(snapshot, [claim])
@@ -162,9 +163,27 @@ class AnalysisService:
                         stage="assessing",
                         evidence=list(all_evidence.values()),
                     )
-                    assessment = self.assessor([claim], snippets, self.settings)
-                    findings.extend(assessment.findings)
-                    self._update(identifier, findings=findings)
+                    try:
+                        assessment = self.assessor([claim], snippets, self.settings)
+                        findings.extend(assessment.findings)
+                    except ExtractionError as exc:
+                        if exc.code != "invalid_output":
+                            raise
+                        findings.append(
+                            Finding(
+                                claim_id=claim.id,
+                                assessment="inconclusive",
+                                explanation="No model assessment was accepted for this claim.",
+                                limitations=[
+                                    "The model failed structured-output or citation validation after two attempts."
+                                ],
+                                suggested_next_step="Review the retrieved evidence and, if appropriate, approve a focused reproduction test.",
+                            )
+                        )
+                        warnings.append(
+                            f"{claim.id}: Invalid model findings were rejected; no source verdict was accepted."
+                        )
+                    self._update(identifier, findings=findings, warnings=warnings)
                 self._update(identifier, stage="complete")
         except SnapshotError as exc:
             self._update(identifier, stage="error", errors=[f"retrieval_error: {exc}"])

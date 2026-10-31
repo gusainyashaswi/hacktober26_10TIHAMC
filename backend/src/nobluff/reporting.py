@@ -93,6 +93,8 @@ def export_report(report: AnalysisReport, format: str) -> str:
             "## Controlled before/after comparison",
             _block(comparison.model_dump_json(indent=2)),
         ]
+    if report.warnings:
+        lines += ["", "## Investigation warnings", _block("\n".join(report.warnings))]
     if report.errors:
         lines += ["", "## Analysis errors", _block("\n".join(report.errors))]
     return "\n\n".join(lines) + "\n"
