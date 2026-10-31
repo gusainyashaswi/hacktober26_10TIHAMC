@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -18,10 +19,13 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "6.1.2",
     "jsdom": "^25.0.1",
     "typescript": "^5.7.2",
-    "vite": "^5.4.14",
-    "vitest": "^2.1.8"
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  },
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
   }
 }
