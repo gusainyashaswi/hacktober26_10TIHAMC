@@ -4,7 +4,13 @@ import {
   AcceptedAnalysis,
   VerificationPlan,
 } from '../types/analysis';
-import { HealthResponse } from '../types/repository';
+import {
+  ConnectedRepository,
+  HealthResponse,
+  InvestigationRecord,
+  PullDetail,
+  PullsResponse,
+} from '../types/repository';
 
 export const API_BASE =
   import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
@@ -21,17 +27,161 @@ export class ApiError extends Error {
   }
 }
 
+async function handleResponse<T>(
+  response: Response,
+  fallbackError: string,
+): Promise<T> {
+  if (!response.ok) {
+    let detail = `${fallbackError} (status ${response.status})`;
+    let data: unknown = null;
+    try {
+      const errJson = await response.json();
+      data = errJson;
+      if (errJson.detail) {
+        if (typeof errJson.detail === 'string') {
+          detail = errJson.detail;
+        } else if (Array.isArray(errJson.detail)) {
+          detail = errJson.detail
+            .map((e: { msg?: string }) => e.msg || JSON.stringify(e))
+            .join('; ');
+        } else {
+          detail = JSON.stringify(errJson.detail);
+        }
+      }
+    } catch {
+      // Body not JSON
+    }
+    throw new ApiError(detail, response.status, data);
+  }
+
+  if (response.status === 204) {
+    return undefined as unknown as T;
+  }
+
+  return response.json();
+}
+
+// 1. Health check
 export async function fetchHealth(): Promise<HealthResponse> {
   const response = await fetch(`${API_BASE}/api/health`, {
     headers: { Accept: 'application/json' },
   });
-  if (!response.ok) {
-    throw new ApiError(`Health check failed with status ${response.status}`, response.status);
-  }
-  return response.json();
+  return handleResponse<HealthResponse>(response, 'Health check failed');
 }
 
-export async function submitAnalysis(request: AnalysisRequest): Promise<AcceptedAnalysis> {
+// 2. Repositories
+export async function fetchRepositories(): Promise<ConnectedRepository[]> {
+  const response = await fetch(`${API_BASE}/api/repositories`, {
+    headers: { Accept: 'application/json' },
+  });
+  const data = await handleResponse<{ items: ConnectedRepository[] }>(
+    response,
+    'Failed to load connected repositories',
+  );
+  return data.items;
+}
+
+export async function connectRepository(
+  repository: string,
+): Promise<ConnectedRepository> {
+  const response = await fetch(`${API_BASE}/api/repositories`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ repository }),
+  });
+  return handleResponse<ConnectedRepository>(
+    response,
+    'Failed to connect repository',
+  );
+}
+
+export async function disconnectRepository(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/repositories/${id}`, {
+    method: 'DELETE',
+    headers: { Accept: 'application/json' },
+  });
+  return handleResponse<void>(response, 'Failed to disconnect repository');
+}
+
+// 3. Pull Requests
+export async function fetchPullRequests(
+  repositoryId: number,
+  page: number = 1,
+): Promise<PullsResponse> {
+  const response = await fetch(
+    `${API_BASE}/api/repositories/${repositoryId}/pulls?page=${page}`,
+    {
+      headers: { Accept: 'application/json' },
+    },
+  );
+  return handleResponse<PullsResponse>(
+    response,
+    `Failed to load pull requests for repository #${repositoryId}`,
+  );
+}
+
+export async function fetchPullRequestDetail(
+  repositoryId: number,
+  prNumber: number,
+): Promise<PullDetail> {
+  const response = await fetch(
+    `${API_BASE}/api/repositories/${repositoryId}/pulls/${prNumber}`,
+    {
+      headers: { Accept: 'application/json' },
+    },
+  );
+  return handleResponse<PullDetail>(
+    response,
+    `Failed to load pull request #${prNumber}`,
+  );
+}
+
+// 4. Analyse Pull Request (Backend resolves merge base & pinned context!)
+export async function submitPRAnalysis(
+  repositoryId: number,
+  prNumber: number,
+): Promise<AcceptedAnalysis> {
+  const response = await fetch(
+    `${API_BASE}/api/repositories/${repositoryId}/pulls/${prNumber}/analyses`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+      },
+    },
+  );
+  return handleResponse<AcceptedAnalysis>(
+    response,
+    `Failed to submit analysis for PR #${prNumber}`,
+  );
+}
+
+// 5. Investigations & History (persisted in backend SQLite)
+export async function fetchInvestigations(
+  repositoryId?: number,
+): Promise<InvestigationRecord[]> {
+  const url =
+    repositoryId !== undefined
+      ? `${API_BASE}/api/repositories/${repositoryId}/investigations`
+      : `${API_BASE}/api/investigations`;
+
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json' },
+  });
+  const data = await handleResponse<{ items: InvestigationRecord[] }>(
+    response,
+    'Failed to load investigations history',
+  );
+  return data.items;
+}
+
+// 6. Generic Analysis (Manual Investigation)
+export async function submitAnalysis(
+  request: AnalysisRequest,
+): Promise<AcceptedAnalysis> {
   const response = await fetch(`${API_BASE}/api/analyses`, {
     method: 'POST',
     headers: {
@@ -40,48 +190,27 @@ export async function submitAnalysis(request: AnalysisRequest): Promise<Accepted
     },
     body: JSON.stringify(request),
   });
-
-  if (!response.ok) {
-    let detail = `Submission failed with status ${response.status}`;
-    try {
-      const errJson = await response.json();
-      if (errJson.detail) {
-        detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-      }
-    } catch {
-      // Keep default detail
-    }
-    throw new ApiError(detail, response.status);
-  }
-
-  return response.json();
+  return handleResponse<AcceptedAnalysis>(response, 'Analysis submission failed');
 }
 
 export async function fetchAnalysis(id: string): Promise<AnalysisReport> {
-  const response = await fetch(`${API_BASE}/api/analyses/${encodeURIComponent(id)}`, {
-    headers: { Accept: 'application/json' },
-  });
-
-  if (!response.ok) {
-    let detail = `Failed to fetch analysis ${id}`;
-    try {
-      const errJson = await response.json();
-      if (errJson.detail) {
-        detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-      }
-    } catch {
-      // Keep default
-    }
-    throw new ApiError(detail, response.status);
-  }
-
-  return response.json();
+  const response = await fetch(
+    `${API_BASE}/api/analyses/${encodeURIComponent(id)}`,
+    {
+      headers: { Accept: 'application/json' },
+    },
+  );
+  return handleResponse<AnalysisReport>(
+    response,
+    `Failed to fetch analysis ${id}`,
+  );
 }
 
 export function getExportUrl(id: string, format: 'json' | 'markdown'): string {
   return `${API_BASE}/api/analyses/${encodeURIComponent(id)}/export?format=${format}`;
 }
 
+// 7. Controlled Verification & Comparison
 export async function submitVerification(
   id: string,
   plan: VerificationPlan,
@@ -97,21 +226,10 @@ export async function submitVerification(
       body: JSON.stringify(plan),
     },
   );
-
-  if (!response.ok) {
-    let detail = `Verification submission failed with status ${response.status}`;
-    try {
-      const errJson = await response.json();
-      if (errJson.detail) {
-        detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-      }
-    } catch {
-      // Keep default
-    }
-    throw new ApiError(detail, response.status);
-  }
-
-  return response.json();
+  return handleResponse<{ analysis_id: string; status: string }>(
+    response,
+    'Verification submission failed',
+  );
 }
 
 export async function submitComparison(
@@ -129,20 +247,8 @@ export async function submitComparison(
       body: JSON.stringify(plan),
     },
   );
-
-  if (!response.ok) {
-    let detail = `Comparison submission failed with status ${response.status}`;
-    try {
-      const errJson = await response.json();
-      if (errJson.detail) {
-        detail = typeof errJson.detail === 'string' ? errJson.detail : JSON.stringify(errJson.detail);
-      }
-    } catch {
-      // Keep default
-    }
-    throw new ApiError(detail, response.status);
-  }
-
-  return response.json();
+  return handleResponse<{ analysis_id: string; status: string }>(
+    response,
+    'Comparison submission failed',
+  );
 }
-

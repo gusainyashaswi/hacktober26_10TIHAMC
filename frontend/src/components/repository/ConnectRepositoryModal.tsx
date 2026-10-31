@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import { ConnectedRepository } from '../../types/repository';
-import {
-  devConnectRepository,
-  parseRepositoryInput,
-} from '../../api/devAdapter';
+import { connectRepository, ApiError } from '../../api/client';
+import { devConnectRepository } from '../../api/devAdapter';
 import {
   IconAlertCircle,
   IconCheck,
@@ -18,6 +16,7 @@ interface ConnectRepositoryModalProps {
   onClose?: () => void;
   onConnected: (repo: ConnectedRepository) => void;
   isInitialSetup?: boolean;
+  isDevMode?: boolean;
 }
 
 type ConnectState =
@@ -32,6 +31,7 @@ export function ConnectRepositoryModal({
   onClose,
   onConnected,
   isInitialSetup = false,
+  isDevMode = false,
 }: ConnectRepositoryModalProps) {
   const [input, setInput] = useState('');
   const [state, setState] = useState<ConnectState>('idle');
@@ -50,50 +50,64 @@ export function ConnectRepositoryModal({
       return;
     }
 
-    const parsed = parseRepositoryInput(trimmed);
-    if (!parsed) {
-      setErrorType('unsupported_url');
-      setErrorMessage(
-        'Unsupported repository format. Please use "owner/repository" or "https://github.com/owner/repository".',
-      );
-      return;
-    }
-
     setState('validating');
     setErrorMessage(null);
     setErrorType(null);
 
     try {
       setState('connecting');
-      // Connect repository via adapter or backend
-      const result = await devConnectRepository(trimmed);
+      let repo: ConnectedRepository;
+
+      if (isDevMode) {
+        const result = await devConnectRepository(trimmed);
+        repo = result.repository;
+      } else {
+        repo = await connectRepository(trimmed);
+      }
+
       setState('connected');
-      setConnectedRepo(result.repository);
+      setConnectedRepo(repo);
 
       setTimeout(() => {
-        onConnected(result.repository);
+        onConnected(repo);
         if (onClose) onClose();
-      }, 700);
+      }, 500);
     } catch (err: unknown) {
       setState('error');
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('rate-limit') || msg.includes('rate limit')) {
-        setErrorType('rate_limit');
-        setErrorMessage('GitHub API rate limit encountered. Please try again later.');
-      } else if (msg.includes('private') || msg.includes('authentication')) {
-        setErrorType('private_repo');
-        setErrorMessage(
-          'Private repository or authentication required. Backend GitHub token integration is not active.',
-        );
-      } else if (msg.includes('not found') || msg.includes('404')) {
-        setErrorType('not_found');
-        setErrorMessage('Repository not found. Check the owner and repository name.');
-      } else if (msg.includes('backend') || msg.includes('NetworkError')) {
-        setErrorType('backend_unavailable');
-        setErrorMessage('Backend connection unavailable. Is the NoBluff API server running?');
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setErrorType('limit_reached');
+          setErrorMessage('Repository limit reached: maximum 20 repositories connected. Disconnect a repository before adding more.');
+        } else if (err.status === 404) {
+          setErrorType('not_found');
+          setErrorMessage('Repository not found on GitHub. Check the owner and repository name.');
+        } else if (err.status === 422) {
+          if (err.message.toLowerCase().includes('private')) {
+            setErrorType('private_repo');
+            setErrorMessage('Only public repositories are supported. Private repositories and credentials are not supported.');
+          } else {
+            setErrorType('unsupported_url');
+            setErrorMessage(err.message || 'Invalid repository format. Use owner/repository or https://github.com/owner/repository.');
+          }
+        } else if (err.status === 429) {
+          setErrorType('rate_limit');
+          setErrorMessage('GitHub access is restricted or rate-limited. Try later or configure a server-side token.');
+        } else if (err.status === 502) {
+          setErrorType('gateway_error');
+          setErrorMessage(err.message || 'GitHub could not provide repository metadata. Redirected repository names must be reconnected.');
+        } else {
+          setErrorType('generic_error');
+          setErrorMessage(err.message || 'Failed to connect repository.');
+        }
       } else {
-        setErrorType('unsupported_url');
-        setErrorMessage(msg);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('connection refused')) {
+          setErrorType('backend_unavailable');
+          setErrorMessage('Backend connection unavailable. Is the NoBluff API server running at http://127.0.0.1:8000?');
+        } else {
+          setErrorType('generic_error');
+          setErrorMessage(msg);
+        }
       }
     }
   };
@@ -157,13 +171,13 @@ export function ConnectRepositoryModal({
                 autoFocus
               />
               <span className="input-hint">
-                Accepts <code className="code-inline">owner/repo</code> or full GitHub URL.
+                Accepts <code className="code-inline">owner/repo</code> or canonical public GitHub URL.
               </span>
             </div>
           </div>
 
           <div className="preset-suggestions">
-            <span className="preset-label">Suggested demo repositories:</span>
+            <span className="preset-label">Suggested public repositories:</span>
             <div className="preset-chips">
               <button
                 type="button"
@@ -185,9 +199,9 @@ export function ConnectRepositoryModal({
           <div className="callout callout-info">
             <IconShield size={16} className="callout-icon" />
             <div className="callout-content">
-              <strong>Public repositories supported:</strong> Open PRs will be
-              indexed automatically. Private repositories require backend GitHub
-              App credentials which are currently not enabled.
+              <strong>Public GitHub repositories only:</strong> Open PRs will be
+              indexed through the NoBluff backend SQLite workspace. Private repositories
+              and credentials are not supported.
             </div>
           </div>
 
@@ -206,7 +220,7 @@ export function ConnectRepositoryModal({
             <div className="callout callout-success" role="status">
               <IconCheck size={16} className="callout-icon" />
               <div className="callout-content">
-                Connected to <strong>{connectedRepo.fullName}</strong>. Loading PR inbox...
+                Connected to <strong>{connectedRepo.full_name}</strong>. Loading PR inbox...
               </div>
             </div>
           )}
@@ -238,7 +252,7 @@ export function ConnectRepositoryModal({
               {state === 'validating'
                 ? 'Validating repository...'
                 : state === 'connecting'
-                ? 'Connecting...'
+                ? 'Connecting to backend...'
                 : state === 'connected'
                 ? 'Connected'
                 : 'Connect repository'}
@@ -249,4 +263,3 @@ export function ConnectRepositoryModal({
     </div>
   );
 }
-

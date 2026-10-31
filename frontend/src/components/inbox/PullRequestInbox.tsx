@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ConnectedRepository,
-  PullRequest,
+  PullSummary,
   PRAnalysisStatus,
 } from '../../types/repository';
 import { PRStatusBadge } from '../common/StatusBadge';
@@ -13,18 +13,27 @@ import {
   IconRefresh,
   IconSearch,
 } from '../common/Icons';
-import { PRAnalysisRecord } from '../../api/storage';
+
+interface PRAnalysisStateRecord {
+  analysisId: string;
+  analysedHeadCommit: string;
+  status: 'queued' | 'analysing' | 'complete' | 'failed' | 'outdated';
+  updatedAt: string;
+}
 
 interface PullRequestInboxProps {
   repository: ConnectedRepository;
-  pullRequests: PullRequest[];
-  analysisMap: Record<number, PRAnalysisRecord>;
+  pullRequests: PullSummary[];
+  analysisMap: Record<number, PRAnalysisStateRecord>;
   isLoading: boolean;
   error: string | null;
   lastRefreshed: Date | null;
+  currentPage?: number;
+  hasMore?: boolean;
   onRefresh: () => void;
-  onSelectPR: (pr: PullRequest) => void;
+  onSelectPR: (pr: PullSummary) => void;
   onSwitchRepository: () => void;
+  onPageChange?: (page: number) => void;
   isDevMode: boolean;
 }
 
@@ -35,13 +44,18 @@ export function PullRequestInbox({
   isLoading,
   error,
   lastRefreshed,
+  currentPage = 1,
+  hasMore = false,
   onRefresh,
   onSelectPR,
   onSwitchRepository,
+  onPageChange,
   isDevMode,
 }: PullRequestInboxProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'needs_analysis' | 'complete'>('all');
+
+  const [owner, name] = repository.full_name.split('/');
 
   // Compute effective analysis state for each PR
   const enrichedPRs = useMemo(() => {
@@ -49,8 +63,20 @@ export function PullRequestInbox({
       const record = analysisMap[pr.number];
       let analysisState: PRAnalysisStatus = 'not_analysed';
 
-      if (record) {
-        if (record.analysedHeadCommit && record.analysedHeadCommit !== pr.headCommit) {
+      if (pr.latest_analysis_stage) {
+        if (pr.is_outdated) {
+          analysisState = 'outdated';
+        } else if (pr.latest_analysis_stage === 'complete') {
+          analysisState = 'complete';
+        } else if (pr.latest_analysis_stage === 'error') {
+          analysisState = 'failed';
+        } else if (pr.latest_analysis_stage === 'queued') {
+          analysisState = 'queued';
+        } else {
+          analysisState = 'analysing';
+        }
+      } else if (record) {
+        if (record.analysedHeadCommit && record.analysedHeadCommit !== pr.head_sha) {
           analysisState = 'outdated';
         } else {
           analysisState = record.status;
@@ -116,9 +142,9 @@ export function PullRequestInbox({
       <header className="inbox-header">
         <div className="inbox-header-title-row">
           <div className="inbox-repo-badge">
-            <span className="repo-owner">{repository.owner}</span>
-            <span className="repo-divider">/</span>
-            <span className="repo-name">{repository.name}</span>
+            <span className="repo-owner">{owner || repository.full_name}</span>
+            {name && <span className="repo-divider">/</span>}
+            {name && <span className="repo-name">{name}</span>}
             <button
               type="button"
               className="btn-switch-repo"
@@ -141,7 +167,7 @@ export function PullRequestInbox({
               className="btn btn-secondary btn-sm"
               onClick={onRefresh}
               disabled={isLoading}
-              title="Refresh pull request inbox"
+              title="Refresh pull request inbox from GitHub"
             >
               <IconRefresh size={14} className={isLoading ? 'spin' : ''} />
               <span>Refresh</span>
@@ -149,12 +175,12 @@ export function PullRequestInbox({
           </div>
         </div>
 
-        {/* Development mode indicator banner */}
+        {/* Development mode indicator banner (only if explicitly enabled) */}
         {isDevMode && (
           <div className="dev-adapter-banner" role="note">
-            <span className="dev-adapter-tag">Dev Adapter</span>
+            <span className="dev-adapter-tag">Dev Adapter Mode</span>
             <span>
-              Showing open-source test fixtures for <strong>{repository.fullName}</strong>. Live GitHub PR polling requires backend GitHub App integration.
+              Explicitly enabled development adapter fixtures for <strong>{repository.full_name}</strong>. Disable in Settings to load live GitHub data.
             </span>
           </div>
         )}
@@ -220,7 +246,7 @@ export function PullRequestInbox({
           <div className="empty-state" role="status">
             <IconRefresh size={24} className="spin text-muted" />
             <p className="empty-title">Fetching open pull requests...</p>
-            <p className="empty-desc">Querying repository metadata and commit SHAs.</p>
+            <p className="empty-desc">Loading live public PR metadata from GitHub.</p>
           </div>
         )}
 
@@ -245,7 +271,7 @@ export function PullRequestInbox({
             <IconGitPullRequest size={28} className="text-muted" />
             <p className="empty-title">No open pull requests</p>
             <p className="empty-desc">
-              There are currently no open pull requests in {repository.fullName}.
+              There are currently no open pull requests in {repository.full_name}.
             </p>
           </div>
         )}
@@ -282,7 +308,7 @@ export function PullRequestInbox({
 
             {filteredPRs.map((pr) => (
               <div
-                key={pr.id}
+                key={pr.number}
                 className="pr-row"
                 role="row"
                 tabIndex={0}
@@ -298,12 +324,12 @@ export function PullRequestInbox({
                   <div className="pr-title-row">
                     <span className="pr-number">#{pr.number}</span>
                     <span className="pr-title">{pr.title}</span>
-                    {pr.isDraft && <span className="badge badge-draft">Draft</span>}
+                    {pr.draft && <span className="badge badge-draft">Draft</span>}
                   </div>
                   <div className="pr-sub-row">
                     <span className="pr-author">opened by {pr.author}</span>
                     <a
-                      href={pr.htmlUrl}
+                      href={pr.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="pr-github-link"
@@ -317,12 +343,12 @@ export function PullRequestInbox({
                 </div>
 
                 <div className="col-branch pr-branch-info">
-                  <code className="branch-name" title={pr.sourceBranch}>
-                    {pr.sourceBranch}
+                  <code className="branch-name" title={pr.head_branch}>
+                    {pr.head_branch}
                   </code>
                   <span className="branch-arrow">&rarr;</span>
-                  <code className="branch-name" title={pr.targetBranch}>
-                    {pr.targetBranch}
+                  <code className="branch-name" title={pr.base_branch}>
+                    {pr.base_branch}
                   </code>
                 </div>
 
@@ -331,7 +357,7 @@ export function PullRequestInbox({
                 </div>
 
                 <div className="col-time text-muted">
-                  {formatRelativeTime(pr.updatedAt)}
+                  {formatRelativeTime(pr.updated_at)}
                 </div>
 
                 <div className="col-action">
@@ -348,6 +374,29 @@ export function PullRequestInbox({
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Pagination controls */}
+        {onPageChange && (currentPage > 1 || hasMore) && (
+          <div className="pagination-row mt-3 flex justify-between items-center">
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => onPageChange(currentPage - 1)}
+            >
+              Previous Page
+            </button>
+            <span className="text-muted text-sm">Page {currentPage}</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={!hasMore || isLoading}
+              onClick={() => onPageChange(currentPage + 1)}
+            >
+              Next Page
+            </button>
           </div>
         )}
       </main>

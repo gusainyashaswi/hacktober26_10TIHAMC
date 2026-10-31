@@ -1,14 +1,12 @@
 import { useState } from 'react';
-import { ConnectedRepository, PullRequestDetail } from '../../types/repository';
+import { ConnectedRepository, PullDetail } from '../../types/repository';
 import { PRStatusBadge } from '../common/StatusBadge';
 import { SafeMarkdown } from '../common/SafeMarkdown';
-import { PRAnalysisRecord } from '../../api/storage';
 import {
   IconAlertTriangle,
   IconArrowLeft,
   IconClock,
   IconExternalLink,
-  IconFileCode,
   IconGitCommit,
   IconPlay,
   IconRefresh,
@@ -16,31 +14,26 @@ import {
 
 interface PullRequestDetailsProps {
   repository: ConnectedRepository;
-  pr: PullRequestDetail;
-  analysisRecord?: PRAnalysisRecord;
+  pr: PullDetail;
   isSubmitting: boolean;
   onBackToInbox: () => void;
-  onStartAnalysis: () => void;
+  onStartAnalysis: (prNumber: number) => void;
   onReopenAnalysis: (analysisId: string) => void;
 }
 
 export function PullRequestDetails({
   repository,
   pr,
-  analysisRecord,
   isSubmitting,
   onBackToInbox,
   onStartAnalysis,
   onReopenAnalysis,
 }: PullRequestDetailsProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'files'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'history'>('overview');
 
-  const isOutdated =
-    analysisRecord &&
-    analysisRecord.analysedHeadCommit &&
-    analysisRecord.analysedHeadCommit !== pr.headCommit;
-
-  const hasAnalysis = Boolean(analysisRecord);
+  const latestHistory = pr.history && pr.history.length > 0 ? pr.history[0] : null;
+  const isOutdated = Boolean(latestHistory?.outdated);
+  const hasAnalysis = Boolean(latestHistory);
 
   return (
     <div className="pr-detail-container">
@@ -63,12 +56,12 @@ export function PullRequestDetails({
           <div className="header-title-wrap">
             <span className="pr-number-tag">#{pr.number}</span>
             <h2 className="pr-detail-title">{pr.title}</h2>
-            {pr.isDraft && <span className="badge badge-draft">Draft</span>}
+            {pr.draft && <span className="badge badge-draft">Draft</span>}
           </div>
 
           <div className="header-actions">
             <a
-              href={pr.htmlUrl}
+              href={pr.url}
               target="_blank"
               rel="noopener noreferrer"
               className="btn btn-secondary btn-sm"
@@ -81,7 +74,7 @@ export function PullRequestDetails({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={onStartAnalysis}
+              onClick={() => onStartAnalysis(pr.number)}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
@@ -103,42 +96,43 @@ export function PullRequestDetails({
         {/* Sub-header branches and metadata */}
         <div className="pr-branches-row">
           <span className="repo-name-label">
-            <strong>{repository.fullName}</strong>
+            <strong>{repository.full_name}</strong>
           </span>
           <span className="author-line">
             Opened by <strong>{pr.author}</strong>
           </span>
           <span className="branch-pair">
-            <code className="branch-badge">{pr.targetBranch}</code>
+            <code className="branch-badge">{pr.base_branch}</code>
             <span className="branch-arrow">&larr;</span>
-            <code className="branch-badge">{pr.sourceBranch}</code>
+            <code className="branch-badge">{pr.head_branch}</code>
           </span>
           <span className="pr-updated-time">
             <IconClock size={12} />
-            <span>Updated {new Date(pr.updatedAt).toLocaleDateString()}</span>
+            <span>Updated {new Date(pr.updated_at).toLocaleDateString()}</span>
           </span>
         </div>
 
         {/* Outdated analysis warning banner */}
-        {isOutdated && analysisRecord && (
+        {isOutdated && latestHistory && (
           <div className="callout callout-warning mt-3" role="alert">
             <IconAlertTriangle size={16} className="callout-icon" />
             <div className="callout-content">
-              <strong>PR head commit changed:</strong> A previous analysis was performed
-              against revision <code>{analysisRecord.analysedHeadCommit.slice(0, 10)}</code>.
-              The current PR head is <code>{pr.headCommit.slice(0, 10)}</code>.
-              <div className="callout-actions mt-2">
+              <strong>Outdated — this PR has new commits since this investigation:</strong> Previous
+              analysis was performed against PR head commit <code>{latestHistory.context.head_sha?.slice(0, 10)}</code>.
+              The current PR head is <code>{pr.head_sha.slice(0, 10)}</code>.
+              <div className="callout-actions mt-2 flex gap-2">
                 <button
                   type="button"
                   className="btn btn-sm btn-secondary"
-                  onClick={() => onReopenAnalysis(analysisRecord.analysisId)}
+                  onClick={() => onReopenAnalysis(latestHistory.id)}
                 >
-                  View earlier analysis
+                  View earlier analysis ({latestHistory.context.head_sha?.slice(0, 7)})
                 </button>
                 <button
                   type="button"
                   className="btn btn-sm btn-primary"
-                  onClick={onStartAnalysis}
+                  onClick={() => onStartAnalysis(pr.number)}
+                  disabled={isSubmitting}
                 >
                   Analyse latest revision
                 </button>
@@ -148,33 +142,41 @@ export function PullRequestDetails({
         )}
 
         {/* Previous analysis button if up to date */}
-        {!isOutdated && analysisRecord && (
+        {!isOutdated && latestHistory && (
           <div className="analysis-status-strip mt-3">
             <div className="status-label-group">
-              <span className="status-label">NoBluff Analysis:</span>
-              <PRStatusBadge status={analysisRecord.status} />
+              <span className="status-label">Latest Investigation:</span>
+              <PRStatusBadge
+                status={
+                  latestHistory.stage === 'complete'
+                    ? 'complete'
+                    : latestHistory.stage === 'error'
+                    ? 'failed'
+                    : 'analysing'
+                }
+              />
             </div>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
-              onClick={() => onReopenAnalysis(analysisRecord.analysisId)}
+              onClick={() => onReopenAnalysis(latestHistory.id)}
             >
               Open Active Investigation Workspace
             </button>
           </div>
         )}
 
-        {/* Pinned Revisions Comparison Context Card */}
+        {/* Pinned Revisions Comparison Context Card (Backend-Resolved!) */}
         <div className="revisions-context-box">
           <div className="context-item">
             <span className="context-label">
               <IconGitCommit size={13} />
               <span>Base Comparison Revision</span>
             </span>
-            <code className="commit-hash" title={pr.baseCommit}>
-              {pr.baseCommit}
+            <code className="commit-hash" title={pr.base_sha}>
+              {pr.base_sha}
             </code>
-            <span className="context-desc">Pre-fix baseline snapshot</span>
+            <span className="context-desc">Pre-fix baseline snapshot (resolved by backend)</span>
           </div>
 
           <div className="context-divider">&rarr;</div>
@@ -184,15 +186,15 @@ export function PullRequestDetails({
               <IconGitCommit size={13} />
               <span>PR Head Revision</span>
             </span>
-            <code className="commit-hash" title={pr.headCommit}>
-              {pr.headCommit}
+            <code className="commit-hash" title={pr.head_sha}>
+              {pr.head_sha}
             </code>
-            <span className="context-desc">Proposed change snapshot</span>
+            <span className="context-desc">Proposed change snapshot ({pr.head_repository})</span>
           </div>
         </div>
       </header>
 
-      {/* Tabs: Description vs Changed Files */}
+      {/* Tabs: Description vs Investigation History */}
       <div className="detail-tabs" role="tablist">
         <button
           type="button"
@@ -201,20 +203,22 @@ export function PullRequestDetails({
           className={`detail-tab ${activeTab === 'overview' ? 'active' : ''}`}
           onClick={() => setActiveTab('overview')}
         >
-          Description
+          Description &amp; Metadata
+          {(pr.additions !== null || pr.deletions !== null) && (
+            <span className="diff-stats ml-2">
+              <span className="stat-add">+{pr.additions ?? 0}</span>
+              <span className="stat-del">-{pr.deletions ?? 0}</span>
+            </span>
+          )}
         </button>
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === 'files'}
-          className={`detail-tab ${activeTab === 'files' ? 'active' : ''}`}
-          onClick={() => setActiveTab('files')}
+          aria-selected={activeTab === 'history'}
+          className={`detail-tab ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
         >
-          Changed Files ({pr.changedFiles.length})
-          <span className="diff-stats">
-            <span className="stat-add">+{pr.totalAdditions}</span>
-            <span className="stat-del">-{pr.totalDeletions}</span>
-          </span>
+          Investigation History ({pr.history ? pr.history.length : 0})
         </button>
       </div>
 
@@ -222,30 +226,51 @@ export function PullRequestDetails({
       <div className="detail-panel card">
         {activeTab === 'overview' && (
           <div className="pr-description-panel">
+            <div className="pr-stats-row mb-3 pb-3 border-b border-subtle flex gap-4 text-sm text-secondary">
+              <span>Changed Files: <strong>{pr.changed_files ?? 'N/A'}</strong></span>
+              <span>Source Repository: <code>{pr.head_repository}</code></span>
+            </div>
             <h3 className="panel-title sr-only">PR Description</h3>
-            <SafeMarkdown content={pr.description} />
+            <SafeMarkdown content={pr.body || '(No description provided for this pull request.)'} />
           </div>
         )}
 
-        {activeTab === 'files' && (
-          <div className="changed-files-panel">
-            <div className="files-list">
-              {pr.changedFiles.map((file, i) => (
-                <div key={i} className="file-row">
-                  <div className="file-name-col">
-                    <IconFileCode size={14} className="text-secondary" />
-                    <code className="file-path">{file.path}</code>
-                    <span className={`badge badge-file-${file.status}`}>
-                      {file.status}
-                    </span>
+        {activeTab === 'history' && (
+          <div className="pr-history-panel">
+            {(!pr.history || pr.history.length === 0) ? (
+              <p className="text-muted text-sm py-4 text-center">
+                No previous NoBluff investigations found for PR #{pr.number}. Click &ldquo;Analyse PR&rdquo; to start.
+              </p>
+            ) : (
+              <div className="history-list flex flex-col gap-3">
+                {pr.history.map((h) => (
+                  <div key={h.id} className="history-entry-card p-3 border border-subtle rounded flex justify-between items-center">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-semibold">{h.id}</span>
+                        <span className={`badge badge-${h.stage === 'complete' ? 'supported' : 'neutral'}`}>
+                          {h.stage}
+                        </span>
+                        {h.outdated && (
+                          <span className="badge badge-inconclusive">Outdated</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted mt-1 flex gap-3">
+                        <span>Head: <code>{h.context?.head_sha?.slice(0, 10)}</code></span>
+                        <span>Created: {new Date(h.created_at).toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onReopenAnalysis(h.id)}
+                    >
+                      Open Report
+                    </button>
                   </div>
-                  <div className="file-diff-col">
-                    <span className="stat-add">+{file.additions}</span>
-                    <span className="stat-del">-{file.deletions}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
