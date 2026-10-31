@@ -37,6 +37,8 @@ class AnalysisRequest(Contract):
     revision: Text
     report_text: Text
     comparison_revision: Text | None = None
+    source_revision: Text | None = None
+    source_repository: Text | None = None
 
 
 class Claim(Contract):
@@ -155,6 +157,8 @@ class AnalysisReport(Contract):
     repository: Text
     revision: Text
     comparison_revision: Text | None = None
+    source_revision: Text | None = None
+    source_repository: Text | None = None
     model: Text
     stage: Stage = "queued"
     claims: list[Claim] = Field(default_factory=list)
