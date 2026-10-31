@@ -235,4 +235,23 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
         background.add_task(service.run_verification, identifier, plan)
         return {"analysis_id": identifier, "status": "verification_accepted"}
 
+    @app.post("/api/analyses/{identifier}/comparison", status_code=202)
+    def comparison(
+        identifier: str, plan: VerificationPlan, background: BackgroundTasks
+    ):
+        if service.get(identifier) is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        if service.runner is None:
+            raise HTTPException(
+                status_code=501, detail="Controlled verification is disabled."
+            )
+        try:
+            service.admit_verification(identifier, plan, comparison=True)
+        except CapacityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        background.add_task(service.run_comparison, identifier, plan)
+        return {"analysis_id": identifier, "status": "comparison_accepted"}
+
     return app
