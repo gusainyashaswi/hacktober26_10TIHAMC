@@ -8,32 +8,29 @@ import {
 import {
   ConnectedRepository,
   HealthResponse,
-  PullRequest,
-  PullRequestDetail,
+  InvestigationRecord,
+  PullDetail,
+  PullSummary,
 } from './types/repository';
 import {
+  disconnectRepository,
   fetchAnalysis,
   fetchHealth,
+  fetchInvestigations,
+  fetchPullRequestDetail,
+  fetchPullRequests,
+  fetchRepositories,
   getExportUrl,
   submitAnalysis,
   submitComparison,
+  submitPRAnalysis,
   submitVerification,
 } from './api/client';
 import {
-  devFetchPullRequestDetail,
-  devFetchPullRequests,
-} from './api/devAdapter';
-import {
-  getInvestigationHistory,
-  getPRAnalysisMap,
-  getSavedRepositories,
   getSelectedRepoId,
-  isDevAdapterDefaultEnabled,
-  recordInvestigation,
-  saveConnectedRepositories,
+  isDevAdapterEnabled,
   saveSelectedRepoId,
   setDevAdapterEnabled,
-  updatePRAnalysis,
 } from './api/storage';
 
 import { AppView, Sidebar } from './components/navigation/Sidebar';
@@ -57,20 +54,22 @@ import {
 
 export default function App() {
   // Navigation & Repositories State
-  const [connectedRepos, setConnectedRepos] = useState<ConnectedRepository[]>(
-    () => getSavedRepositories(),
-  );
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(() =>
+  const [connectedRepos, setConnectedRepos] = useState<ConnectedRepository[]>([]);
+  const [selectedRepoId, setSelectedRepoId] = useState<number | null>(() =>
     getSelectedRepoId(),
   );
+  const [reposLoading, setReposLoading] = useState(true);
   const [currentView, setCurrentView] = useState<AppView>('inbox');
 
   // Pull Requests State
-  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
-  const [selectedPR, setSelectedPR] = useState<PullRequestDetail | null>(null);
+  const [pullRequests, setPullRequests] = useState<PullSummary[]>([]);
+  const [selectedPR, setSelectedPR] = useState<PullDetail | null>(null);
   const [prLoading, setPrLoading] = useState(false);
   const [prError, setPrError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  // Investigation History State
+  const [investigations, setInvestigations] = useState<InvestigationRecord[]>([]);
 
   // Active Analysis State
   const [currentAnalysis, setCurrentAnalysis] = useState<AnalysisReport | null>(
@@ -93,7 +92,7 @@ export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [isDevMode, setIsDevMode] = useState<boolean>(() =>
-    isDevAdapterDefaultEnabled(),
+    isDevAdapterEnabled(),
   );
 
   // Selected Repository Object
@@ -101,11 +100,6 @@ export default function App() {
     connectedRepos.find((r) => r.id === selectedRepoId) ||
     connectedRepos[0] ||
     null;
-
-  // Analysis map for current repo
-  const currentAnalysisMap = selectedRepository
-    ? getPRAnalysisMap(selectedRepository.id)
-    : {};
 
   // Check backend health on mount
   const checkHealth = useCallback(async () => {
@@ -120,17 +114,32 @@ export default function App() {
     }
   }, []);
 
+  // Load connected repositories from backend on mount
+  const loadRepositories = useCallback(async () => {
+    setReposLoading(true);
+    try {
+      const repos = await fetchRepositories();
+      setConnectedRepos(repos);
+    } catch {
+      // Backend may be offline; start with empty list
+      setConnectedRepos([]);
+    } finally {
+      setReposLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     checkHealth();
-  }, [checkHealth]);
+    loadRepositories();
+  }, [checkHealth, loadRepositories]);
 
   // Load PRs when repository changes
   const loadPullRequests = useCallback(async (repo: ConnectedRepository) => {
     setPrLoading(true);
     setPrError(null);
     try {
-      const prs = await devFetchPullRequests(repo.id);
-      setPullRequests(prs);
+      const res = await fetchPullRequests(repo.id, 1);
+      setPullRequests(res.items);
       setLastRefreshed(new Date());
     } catch (err: unknown) {
       setPrError(err instanceof Error ? err.message : String(err));
@@ -146,6 +155,22 @@ export default function App() {
       setPullRequests([]);
     }
   }, [selectedRepository, loadPullRequests]);
+
+  // Load investigation history when switching to history view
+  const loadInvestigations = useCallback(async (repoId?: number) => {
+    try {
+      const items = await fetchInvestigations(repoId);
+      setInvestigations(items);
+    } catch {
+      setInvestigations([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (currentView === 'history') {
+      loadInvestigations(selectedRepository?.id);
+    }
+  }, [currentView, selectedRepository, loadInvestigations]);
 
   // Polling management for active analysis
   const stopPolling = useCallback(() => {
@@ -172,26 +197,12 @@ export default function App() {
         // Terminal stages check
         if (report.stage === 'complete' || report.stage === 'error') {
           stopPolling();
-
-          // Record in persistent history
-          recordInvestigation(report, selectedPR || undefined);
-
-          // Update PR analysis map if tied to selected PR
-          if (selectedRepository && selectedPR) {
-            updatePRAnalysis(selectedRepository.id, selectedPR.number, {
-              analysisId: report.id,
-              analysedHeadCommit: selectedPR.headCommit,
-              status: report.stage === 'complete' ? 'complete' : 'failed',
-              updatedAt: new Date().toISOString(),
-            });
-          }
         }
-      } catch (err: unknown) {
-        // Preserving error without losing current context
+      } catch {
         stopPolling();
       }
     },
-    [selectedPR, selectedRepository, stopPolling],
+    [stopPolling],
   );
 
   const startPolling = useCallback(
@@ -209,35 +220,21 @@ export default function App() {
     [pollAnalysis, stopPolling],
   );
 
-  // Submit analysis workflow
-  const handleStartAnalysis = async (request?: AnalysisRequest) => {
+  // Submit PR analysis — backend resolves merge base and pinned revisions
+  const handleStartPRAnalysis = async (prNumber: number) => {
+    if (!selectedRepository) return;
     setIsSubmittingAnalysis(true);
     try {
-      let req: AnalysisRequest;
+      const accepted = await submitPRAnalysis(selectedRepository.id, prNumber);
 
-      if (request) {
-        req = request;
-      } else if (selectedRepository && selectedPR) {
-        // Construct analysis request from PR metadata
-        req = {
-          repository: selectedRepository.url || `https://github.com/${selectedRepository.fullName}`,
-          revision: selectedPR.baseCommit,
-          comparison_revision: selectedPR.headCommit,
-          report_text: `${selectedPR.title}\n\n${selectedPR.description}`,
-        };
-      } else {
-        throw new Error('No repository or PR context available for analysis.');
-      }
-
-      const accepted = await submitAnalysis(req);
-
-      // Create initial queued report state
+      // Build a minimal queued report to render progress immediately
+      const pr = selectedPR;
       const initialReport: AnalysisReport = {
         schema_version: '1.0',
         id: accepted.id,
-        repository: req.repository,
-        revision: req.revision,
-        comparison_revision: req.comparison_revision,
+        repository: selectedRepository.url,
+        revision: pr?.base_sha || '',
+        comparison_revision: pr?.head_sha || undefined,
         model: health?.model || 'qwen3:8b',
         stage: 'queued',
         claims: [],
@@ -251,16 +248,6 @@ export default function App() {
 
       setCurrentAnalysis(initialReport);
       setCurrentView('investigation');
-
-      if (selectedRepository && selectedPR) {
-        updatePRAnalysis(selectedRepository.id, selectedPR.number, {
-          analysisId: accepted.id,
-          analysedHeadCommit: selectedPR.headCommit,
-          status: 'analysing',
-          updatedAt: new Date().toISOString(),
-        });
-      }
-
       startPolling(accepted.id);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : String(err));
@@ -269,12 +256,45 @@ export default function App() {
     }
   };
 
-  // Select PR from Inbox
-  const handleSelectPR = async (pr: PullRequest) => {
+  // Submit manual analysis — caller provides full request
+  const handleStartManualAnalysis = async (request: AnalysisRequest) => {
+    setIsSubmittingAnalysis(true);
+    try {
+      const accepted = await submitAnalysis(request);
+
+      const initialReport: AnalysisReport = {
+        schema_version: '1.0',
+        id: accepted.id,
+        repository: request.repository,
+        revision: request.revision,
+        comparison_revision: request.comparison_revision,
+        model: health?.model || 'qwen3:8b',
+        stage: 'queued',
+        claims: [],
+        evidence: [],
+        findings: [],
+        executions: [],
+        approved_tests: [],
+        comparisons: [],
+        errors: [],
+      };
+
+      setCurrentAnalysis(initialReport);
+      setCurrentView('investigation');
+      startPolling(accepted.id);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSubmittingAnalysis(false);
+    }
+  };
+
+  // Select PR from Inbox — fetch full detail from backend
+  const handleSelectPR = async (pr: PullSummary) => {
     if (!selectedRepository) return;
     setPrLoading(true);
     try {
-      const detail = await devFetchPullRequestDetail(selectedRepository.id, pr.number);
+      const detail = await fetchPullRequestDetail(selectedRepository.id, pr.number);
       setSelectedPR(detail);
       setCurrentView('pr_detail');
     } catch (err: unknown) {
@@ -284,7 +304,7 @@ export default function App() {
     }
   };
 
-  // Reopen existing analysis
+  // Reopen existing analysis by ID
   const handleReopenAnalysis = async (analysisId: string) => {
     try {
       const report = await fetchAnalysis(analysisId);
@@ -327,26 +347,29 @@ export default function App() {
 
   // Connected Repositories Management
   const handleConnectedNewRepo = (repo: ConnectedRepository) => {
-    const updated = [repo, ...connectedRepos.filter((r) => r.id !== repo.id)];
-    setConnectedRepos(updated);
-    saveConnectedRepositories(updated);
+    // Backend already persisted; update local state
+    setConnectedRepos((prev) => [repo, ...prev.filter((r) => r.id !== repo.id)]);
     setSelectedRepoId(repo.id);
     saveSelectedRepoId(repo.id);
     setCurrentView('inbox');
   };
 
-  const handleDisconnectRepo = (repoId: string) => {
-    const updated = connectedRepos.filter((r) => r.id !== repoId);
-    setConnectedRepos(updated);
-    saveConnectedRepositories(updated);
-    if (selectedRepoId === repoId) {
-      const nextId = updated[0]?.id || null;
-      setSelectedRepoId(nextId);
-      saveSelectedRepoId(nextId);
+  const handleDisconnectRepo = async (repoId: number) => {
+    try {
+      await disconnectRepository(repoId);
+      setConnectedRepos((prev) => prev.filter((r) => r.id !== repoId));
+      if (selectedRepoId === repoId) {
+        const remaining = connectedRepos.filter((r) => r.id !== repoId);
+        const nextId = remaining[0]?.id ?? null;
+        setSelectedRepoId(nextId);
+        saveSelectedRepoId(nextId);
+      }
+    } catch (err: unknown) {
+      alert(`Could not disconnect repository: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
-  const handleSelectRepo = (repoId: string) => {
+  const handleSelectRepo = (repoId: number) => {
     setSelectedRepoId(repoId);
     saveSelectedRepoId(repoId);
     setSelectedPR(null);
@@ -360,8 +383,8 @@ export default function App() {
     setDevAdapterEnabled(enabled);
   };
 
-  // If no repository is connected, prompt with Connect Modal
-  const isInitialSetup = connectedRepos.length === 0;
+  // If no repository is connected and repos have loaded, prompt with Connect Modal
+  const isInitialSetup = !reposLoading && connectedRepos.length === 0;
 
   return (
     <div className="app-shell">
@@ -388,7 +411,6 @@ export default function App() {
           <PullRequestInbox
             repository={selectedRepository}
             pullRequests={pullRequests}
-            analysisMap={currentAnalysisMap}
             isLoading={prLoading}
             error={prError}
             lastRefreshed={lastRefreshed}
@@ -404,10 +426,9 @@ export default function App() {
           <PullRequestDetails
             repository={selectedRepository}
             pr={selectedPR}
-            analysisRecord={currentAnalysisMap[selectedPR.number]}
             isSubmitting={isSubmittingAnalysis}
             onBackToInbox={() => setCurrentView('inbox')}
-            onStartAnalysis={() => handleStartAnalysis()}
+            onStartAnalysis={handleStartPRAnalysis}
             onReopenAnalysis={handleReopenAnalysis}
           />
         )}
@@ -417,14 +438,14 @@ export default function App() {
           <ManualInvestigation
             currentRepository={selectedRepository}
             isSubmitting={isSubmittingAnalysis}
-            onSubmit={(req) => handleStartAnalysis(req)}
+            onSubmit={handleStartManualAnalysis}
           />
         )}
 
         {/* View 4: Investigation History */}
         {currentView === 'history' && (
           <InvestigationHistory
-            investigations={getInvestigationHistory(selectedRepository?.id)}
+            investigations={investigations}
             onOpenReport={handleReopenAnalysis}
           />
         )}
@@ -544,6 +565,7 @@ export default function App() {
       <ConnectRepositoryModal
         isOpen={connectModalOpen || isInitialSetup}
         isInitialSetup={isInitialSetup}
+        isDevMode={isDevMode}
         onClose={() => setConnectModalOpen(false)}
         onConnected={handleConnectedNewRepo}
       />
