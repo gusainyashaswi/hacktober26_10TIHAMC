@@ -36,6 +36,10 @@ The standalone command and an actual recorded response are documented in
 `docs/model-integration.md` and `examples/claim-extraction/`. This does not yet
 implement evidence retrieval, truth assessment or reproduction execution.
 
+A local FastAPI service now accepts reports and exposes extraction progress and
+shared claim reports. Its terminal extraction state is `awaiting_evidence`;
+repository revisions remain unresolved until ingestion is integrated.
+
 ## AI development assistance
 
 Codex/ChatGPT and Claude were used for project planning and this document. Each later PR discloses the assistants and models involved.

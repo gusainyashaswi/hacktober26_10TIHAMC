@@ -17,8 +17,17 @@ The first implemented workflow extracts unverified claims from issue text:
 python -m nobluff.model --report examples/claim-extraction/input.txt
 ```
 
+For a local HTTP API with submission and progress polling:
+
+```sh
+python -m uvicorn nobluff.api:create_app --factory --host 127.0.0.1 --port 8000
+```
+
+Open http://127.0.0.1:8000/docs for interactive API documentation. See
+[API integration](docs/api.md) for Devishi's frontend connection.
+
 This is claim extraction only. Repository investigation, evidence assessment,
-verification and the web interface are separate integration work.
+verification and connecting the web interface are separate integration work.
 See [model integration](docs/model-integration.md) and [shared contracts](docs/contracts.md).
 
 ## Examples

@@ -1,0 +1,13 @@
+{
+  "captured_at": "2026-10-31T18:42:46.142350+00:00",
+  "endpoint": "http://127.0.0.1:8765/api/analyses",
+  "http_status": 202,
+  "accepted": {
+    "id": "56b19d51-4045-48b0-9d18-d5b106ca8e31"
+  },
+  "terminal_stage": "awaiting_evidence",
+  "model": "qwen3:8b",
+  "model_digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+  "elapsed_ms": 13208,
+  "scope": "Actual HTTP submission and real Qwen extraction only; no repository loading or verification"
+}
