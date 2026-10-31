@@ -204,3 +204,45 @@ def test_running_report_is_marked_interrupted_after_restart(tmp_path):
     report = restarted.get(identifier)
     assert report.stage == "error"
     assert "interrupted" in report.errors[0]
+
+
+def test_twenty_repository_limit_returns_409_and_reconnecting_returns_201(tmp_path):
+    def handler(request):
+        if request.url.path.startswith("/repos/"):
+            name = request.url.path.removeprefix("/repos/")
+            return httpx.Response(
+                200,
+                json={
+                    "full_name": name,
+                    "html_url": f"https://github.com/{name}",
+                    "default_branch": "main",
+                    "private": False,
+                },
+            )
+        return httpx.Response(404)
+
+    store = Workspace(tmp_path / "workspace.sqlite3")
+    with (
+        httpx.Client(transport=httpx.MockTransport(handler)) as http,
+        TestClient(create_app(workspace=store, github=GitHub(http))) as client,
+    ):
+        for i in range(20):
+            response = client.post(
+                "/api/repositories", json={"repository": f"example/repo-{i}"}
+            )
+            assert response.status_code == 201
+
+        over_limit = client.post(
+            "/api/repositories", json={"repository": "example/repo-20"}
+        )
+        assert over_limit.status_code == 409
+        assert (
+            over_limit.json()["detail"]
+            == "Disconnect a repository before adding more than 20."
+        )
+
+        reconnect = client.post(
+            "/api/repositories", json={"repository": "example/repo-0"}
+        )
+        assert reconnect.status_code == 201
+
