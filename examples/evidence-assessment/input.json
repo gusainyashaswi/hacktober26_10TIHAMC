@@ -1,0 +1,10 @@
+{
+  "claims": [
+    {"id": "claim-ascii", "text": "export_csv explicitly selects ASCII as the output file encoding.", "kind": "behavior"},
+    {"id": "claim-utf8", "text": "export_csv explicitly selects UTF-8 as the output file encoding.", "kind": "behavior"},
+    {"id": "claim-runtime", "text": "The reporter observed export_csv crashing on their emoji customer input in their environment.", "kind": "behavior"}
+  ],
+  "evidence": [
+    {"id": "source-encoding", "kind": "source", "revision": "fixture-only-v1", "path": "exporter.py", "start_line": 1, "end_line": 3, "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='utf-8') as stream:\n        stream.write(str(rows))"}
+  ]
+}

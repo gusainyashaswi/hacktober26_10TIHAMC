@@ -1,0 +1,48 @@
+{
+  "model": "qwen3:8b",
+  "basis": "qwen",
+  "created_at": "2026-10-31T19:10:30.331147+00:00",
+  "findings": [
+    {
+      "claim_id": "claim-ascii",
+      "assessment": "contradicted",
+      "evidence_ids": [
+        "source-encoding"
+      ],
+      "explanation": "The source code explicitly uses 'utf-8' as the encoding, which directly contradicts the claim that ASCII is selected.",
+      "limitations": [
+        "Static source review only; no reproduction was executed."
+      ],
+      "suggested_next_step": null
+    },
+    {
+      "claim_id": "claim-utf8",
+      "assessment": "supported",
+      "evidence_ids": [
+        "source-encoding"
+      ],
+      "explanation": "The source code explicitly uses 'utf-8' as the encoding, which directly supports the claim that UTF-8 is selected.",
+      "limitations": [
+        "Static source review only; no reproduction was executed."
+      ],
+      "suggested_next_step": null
+    },
+    {
+      "claim_id": "claim-runtime",
+      "assessment": "inconclusive",
+      "evidence_ids": [],
+      "explanation": "The evidence does not provide information about runtime behavior or crashes related to emoji input. The source code does not mention handling of emoji inputs.",
+      "limitations": [
+        "No runtime observations or test results provided",
+        "Static source review only; no reproduction was executed."
+      ],
+      "suggested_next_step": "Check the runtime behavior with emoji input in the environment to determine if a crash occurs."
+    }
+  ],
+  "attempts": 1,
+  "elapsed_ms": 20134,
+  "warnings": [
+    "Model interpretation requires review; valid citations alone do not establish truth.",
+    "Static source review only; no reproduction was executed."
+  ]
+}
