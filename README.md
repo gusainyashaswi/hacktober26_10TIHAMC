@@ -30,5 +30,10 @@ This is claim extraction only. Repository investigation, evidence assessment,
 verification and connecting the web interface are separate integration work.
 See [model integration](docs/model-integration.md) and [shared contracts](docs/contracts.md).
 
+A standalone [source evidence assessor](docs/evidence-assessment.md) now compares
+claims against supplied, verified file evidence. It is not yet connected to the
+API or repository loader. A real model run on labelled synthetic evidence is in
+`examples/evidence-assessment/`.
+
 ## Examples
 See the examples folder.

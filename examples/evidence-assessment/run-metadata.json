@@ -1,0 +1,19 @@
+{
+  "scope": "Actual model assessment of synthetic evidence only; no repository loading or execution",
+  "model": "qwen3:8b",
+  "model_digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+  "input_sha256": "d594e4f99b5ea51d21060309449d51e1cc638ddbf8055660ed3043d604d49a02",
+  "reference_outcomes": {
+    "claim-ascii": "contradicted",
+    "claim-utf8": "supported",
+    "claim-runtime": "inconclusive"
+  },
+  "reference_outcomes_supplied_to_model": false,
+  "observed_outcomes_match_reference": true,
+  "options": {
+    "temperature": 0,
+    "num_ctx": 8192,
+    "num_predict": 2048,
+    "think": false
+  }
+}

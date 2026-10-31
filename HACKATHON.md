@@ -40,6 +40,11 @@ A local FastAPI service now accepts reports and exposes extraction progress and
 shared claim reports. Its terminal extraction state is `awaiting_evidence`;
 repository revisions remain unresolved until ingestion is integrated.
 
+A standalone Qwen source-evidence assessment module now returns validated
+supported, contradicted or inconclusive findings. Its actual synthetic-input
+model example is in `examples/evidence-assessment/`. Connecting verified
+repository retrieval and this assessor to the API remains integration work.
+
 ## AI development assistance
 
 Codex/ChatGPT and Claude were used for project planning and this document. Each later PR discloses the assistants and models involved.
