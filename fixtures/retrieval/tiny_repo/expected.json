@@ -1,0 +1,18 @@
+{
+  "_note": "Evaluation reference data. Must never go into model prompts.",
+  "claim": "average() crashes when given an empty list",
+  "expected_original": {
+    "test": "tests/test_average.py",
+    "status": "failed",
+    "error": "ZeroDivisionError"
+  },
+  "expected_fix": {
+    "test": "tests/test_average.py",
+    "status": "passed"
+  },
+  "symbol": {
+    "file": "calc/stats.py",
+    "name": "average"
+  }
+}
+
