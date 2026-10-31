@@ -434,7 +434,9 @@ def test_passing_test_returns_passed(tmp_path: Path) -> None:
     _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_always_pass(): assert True\n")
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert (
+        result.status == "passed"
+    ), f"status={result.status} exit={result.exit_code} stderr={result.stderr[-800:]} mounted_mode={oct(os.stat(tmp_path).st_mode & 0o777)}"
     assert result.exit_code == 0
     assert len(result.test_hash) == 64
 
@@ -506,7 +508,9 @@ def test_whoami_confirms_non_root(tmp_path: Path) -> None:
         """)
     )
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert (
+        result.status == "passed"
+    ), f"status={result.status} exit={result.exit_code} stderr={result.stderr[-800:]} mounted_mode={oct(os.stat(tmp_path).st_mode & 0o777)}"
 
 
 @pytest.mark.runner
@@ -517,5 +521,7 @@ def test_runner_executes_with_monkeypatched_image(
     monkeypatch.setenv("NOBLUFF_RUNNER_IMAGE", img)
     test_file = _make_test_file(tmp_path, "def test_pass(): assert True\n")
     result = run_verification(tmp_path, test_file, timeout_seconds=60)
-    assert result.status == "passed"
+    assert (
+        result.status == "passed"
+    ), f"status={result.status} exit={result.exit_code} stderr={result.stderr[-800:]} mounted_mode={oct(os.stat(tmp_path).st_mode & 0o777)}"
     assert result.environment.get("image") == img
