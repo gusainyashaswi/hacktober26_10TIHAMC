@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "is_example": true,
+  "id": "fixture-report-001",
+  "repository": "fixture-only/not-a-real-repository",
+  "revision": "fixture-original",
+  "comparison_revision": null,
+  "model": "fixture-only/no-model-executed",
+  "stage": "complete",
+  "claims": [
+    {"id": "claim-1", "text": "The exporter selects UTF-8 encoding.", "kind": "behavior", "search_terms": ["export_csv", "encoding"], "reported_as": "assertion"},
+    {"id": "claim-2", "text": "The exporter crashes on emoji names.", "kind": "behavior", "search_terms": ["export_csv", "emoji"], "reported_as": "assertion"}
+  ],
+  "evidence": [
+    {"id": "source-1", "kind": "source", "revision": "fixture-original", "path": "src/exporter.py", "start_line": 1, "end_line": 3, "excerpt": "def export_csv(path, rows):\n    with open(path, 'w', encoding='utf-8') as stream:\n        stream.write(str(rows))", "execution_id": null}
+  ],
+  "findings": [
+    {"claim_id": "claim-1", "assessment": "supported", "evidence_ids": ["source-1"], "explanation": "The illustrative source explicitly selects UTF-8.", "limitations": ["Synthetic contract fixture; no real repository was investigated."], "suggested_next_step": null},
+    {"claim_id": "claim-2", "assessment": "inconclusive", "evidence_ids": [], "explanation": "No reproduction was executed.", "limitations": ["No sample input, execution environment or observed failure is available."], "suggested_next_step": "Request sample input and an approved reproduction plan."}
+  ],
+  "executions": [],
+  "errors": []
+}
