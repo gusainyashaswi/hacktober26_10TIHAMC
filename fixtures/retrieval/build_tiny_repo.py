@@ -13,6 +13,8 @@ import sys
 
 def build(dest_dir: str | Path) -> dict[str, str]:
     dest = Path(dest_dir).resolve()
+    if dest.exists() and any(dest.iterdir()):
+        raise ValueError("Fixture destination must be empty")
     dest.mkdir(parents=True, exist_ok=True)
 
     fixtures_dir = Path(__file__).parent / "tiny_repo"
@@ -57,6 +59,8 @@ def build(dest_dir: str | Path) -> dict[str, str]:
         check=True,
         capture_output=True,
     )
+
+    subprocess.run(["git", "config", "core.hooksPath", "/dev/null"], cwd=dest, check=True)
 
     # Step 3: Commit original revision
     subprocess.run(["git", "add", "-A"], cwd=dest, env=env, check=True, capture_output=True)
@@ -115,7 +119,7 @@ if __name__ == "__main__":
 
     out_dir = Path(sys.argv[1]).resolve()
     if out_dir.exists() and any(out_dir.iterdir()):
-        shutil.rmtree(out_dir)
+        raise SystemExit("Refusing to delete a non-empty fixture destination")
     out_dir.mkdir(parents=True, exist_ok=True)
 
     result = build(out_dir)

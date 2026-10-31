@@ -8,8 +8,6 @@ from collections.abc import Iterable
 from nobluff.retrieval.snapshot import (
     Excerpt,
     Snapshot,
-    search_snippets,
-    verify_excerpt,
 )
 from nobluff.schemas import Claim, Evidence
 
@@ -39,16 +37,7 @@ def retrieve_evidence(
     max_results_per_claim: int = 20,
 ) -> list[Evidence]:
     """Return verified Evidence for each claim's search_terms, deduplicated by id."""
-    found: dict[str, Evidence] = {}
-    for claim in claims:
-        for ex in search_snippets(
-            snapshot,
-            list(claim.search_terms),
-            context=context,
-            max_results=max_results_per_claim,
-        ):
-            if not verify_excerpt(snapshot, ex):
-                continue
-            ev = excerpt_to_evidence(ex)
-            found.setdefault(ev.id, ev)
-    return list(found.values())
+    from nobluff.retrieval.core import retrieve_evidence as canonical_retrieve
+
+    # One shared aggregate budget, AST retrieval and citation validator.
+    return canonical_retrieve(snapshot, list(claims))
