@@ -1,6 +1,8 @@
 """Local API for the first extraction workflow; no repository execution."""
 
+import os
 import re
+from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
@@ -14,7 +16,9 @@ from nobluff.model import OllamaSettings
 from nobluff.model.extraction import MAX_REPORT_CHARS
 from nobluff.pipeline import AnalysisService, CapacityError
 from nobluff.reporting import export_report
+from nobluff.repositories import RepositoryLoader
 from nobluff.schemas import AnalysisReport, AnalysisRequest, Contract, Text
+from nobluff.verification.policy import VerificationPlan, verify_snapshot
 
 
 class APIAnalysisRequest(AnalysisRequest):
@@ -98,11 +102,27 @@ class BodyLimitMiddleware:
 
 
 def create_app(service: AnalysisService | None = None) -> FastAPI:
+    loader = None
     if service is None:
-        service = AnalysisService(OllamaSettings.from_env())
+        loader = RepositoryLoader.from_env()
+        service = AnalysisService(
+            OllamaSettings.from_env(),
+            snapshot_loader=loader.load,
+            runner=verify_snapshot
+            if os.getenv("NOBLUFF_ENABLE_VERIFICATION") == "1"
+            else None,
+        )
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        if loader is not None:
+            loader.close()
+
     app = FastAPI(
         title="NoBluff local analysis API",
-        description="Claim extraction only. Repository loading, evidence assessment and execution are not connected yet.",
+        description="Source-backed claim investigations. Static evidence is not runtime proof.",
+        lifespan=lifespan,
     )
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
@@ -134,12 +154,12 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
     def health():
         return {
             "status": "ok",
-            "scope": "claim_extraction",
+            "scope": "source_review" if service.snapshot_loader else "claim_extraction",
             "model": service.settings.model,
             "model_readiness": "not_checked",
-            "repository_loading": False,
-            "evidence_assessment": False,
-            "verification": False,
+            "repository_loading": service.snapshot_loader is not None,
+            "evidence_assessment": service.snapshot_loader is not None,
+            "verification": service.runner is not None,
         }
 
     @app.post("/api/analyses", status_code=202, response_model=AcceptedAnalysis)
@@ -156,7 +176,9 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             content={"id": identifier},
             headers={
                 "Location": f"/api/analyses/{identifier}",
-                "X-NoBluff-Scope": "claim_extraction_only",
+                "X-NoBluff-Scope": "source_review"
+                if service.snapshot_loader
+                else "claim_extraction_only",
             },
         )
 
@@ -186,15 +208,50 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             },
         )
 
-    @app.post("/api/analyses/{identifier}/verification", status_code=501)
-    def verification_unavailable(identifier: str):
+    @app.post("/api/analyses/{identifier}/verification", status_code=202)
+    def verification(
+        identifier: str,
+        background: BackgroundTasks,
+        plan: VerificationPlan | None = None,
+    ):
         if service.get(identifier) is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        if service.runner is None:
             raise HTTPException(
-                status_code=404, detail="Analysis not found in this server process."
+                status_code=501,
+                detail="Controlled verification is disabled. No code was executed.",
             )
-        raise HTTPException(
-            status_code=501,
-            detail="Controlled verification is not connected. No code was executed.",
-        )
+        if plan is None:
+            raise HTTPException(
+                status_code=422,
+                detail="A reviewed test and explicit approval are required.",
+            )
+        try:
+            service.admit_verification(identifier, plan)
+        except CapacityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        background.add_task(service.run_verification, identifier, plan)
+        return {"analysis_id": identifier, "status": "verification_accepted"}
+
+    @app.post("/api/analyses/{identifier}/comparison", status_code=202)
+    def comparison(
+        identifier: str, plan: VerificationPlan, background: BackgroundTasks
+    ):
+        if service.get(identifier) is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        if service.runner is None:
+            raise HTTPException(
+                status_code=501, detail="Controlled verification is disabled."
+            )
+        try:
+            service.admit_verification(identifier, plan, comparison=True)
+        except CapacityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        background.add_task(service.run_comparison, identifier, plan)
+        return {"analysis_id": identifier, "status": "comparison_accepted"}
 
     return app

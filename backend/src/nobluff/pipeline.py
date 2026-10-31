@@ -1,5 +1,6 @@
-"""Single-user extraction jobs. Retrieval and assessment are not implemented here."""
+"""Bounded, single-user source investigations and approved controlled execution."""
 
+import hashlib
 from collections.abc import Callable
 from threading import Lock
 from uuid import uuid4
@@ -8,9 +9,19 @@ from nobluff.model import (
     ClaimExtractionResult,
     ExtractionError,
     OllamaSettings,
+    assess_claims,
     extract_claims,
 )
-from nobluff.schemas import AnalysisReport, AnalysisRequest
+from nobluff.retrieval import Snapshot, SnapshotError, retrieve_evidence
+from nobluff.schemas import (
+    AnalysisReport,
+    AnalysisRequest,
+    ApprovedTest,
+    Evidence,
+    Finding,
+)
+from nobluff.verification.comparison import compare_runs
+from nobluff.verification.policy import VerificationPlan, observed_expected_failure
 
 
 class CapacityError(RuntimeError):
@@ -30,12 +41,20 @@ class AnalysisService:
         *,
         extractor: Callable[..., ClaimExtractionResult] = extract_claims,
         max_reports: int = 100,
+        snapshot_loader: Callable[[str, str], Snapshot] | None = None,
+        assessor: Callable = assess_claims,
+        runner: Callable | None = None,
     ):
         if max_reports < 1:
             raise ValueError("max_reports must be positive")
         self.settings = settings
         self.extractor = extractor
         self.max_reports = max_reports
+        self.snapshot_loader = snapshot_loader
+        self.assessor = assessor
+        self.runner = runner
+        self._snapshots: dict[str, Snapshot] = {}
+        self._requests: dict[str, AnalysisRequest] = {}
         self._reports: dict[str, AnalysisReport] = {}
         self._active: str | None = None
         self._lock = Lock()
@@ -59,6 +78,7 @@ class AnalysisService:
                 model=self.settings.model,
             )
             self._active = identifier
+            self._requests[identifier] = request.model_copy(deep=True)
             return identifier
 
     def get(self, identifier: str) -> AnalysisReport | None:
@@ -73,6 +93,14 @@ class AnalysisService:
 
     def run(self, identifier: str, report_text: str) -> None:
         try:
+            snapshot = None
+            if self.snapshot_loader:
+                self._update(identifier, stage="loading")
+                request = self._requests[identifier]
+                snapshot = self.snapshot_loader(request.repository, request.revision)
+                with self._lock:
+                    self._snapshots[identifier] = snapshot
+                self._update(identifier, revision=snapshot.commit)
             self._update(identifier, stage="extracting")
             result = self.extractor(report_text, self.settings)
             if result.model != self.settings.model:
@@ -80,6 +108,24 @@ class AnalysisService:
                     "unexpected_model", "The extractor returned a different model."
                 )
             self._update(identifier, stage="awaiting_evidence", claims=result.claims)
+            if snapshot is not None:
+                all_evidence = {}
+                findings = []
+                for claim in result.claims:
+                    self._update(identifier, stage="retrieving")
+                    snippets = retrieve_evidence(snapshot, [claim])
+                    all_evidence.update({item.id: item for item in snippets})
+                    self._update(
+                        identifier,
+                        stage="assessing",
+                        evidence=list(all_evidence.values()),
+                    )
+                    assessment = self.assessor([claim], snippets, self.settings)
+                    findings.extend(assessment.findings)
+                    self._update(identifier, findings=findings)
+                self._update(identifier, stage="complete")
+        except SnapshotError as exc:
+            self._update(identifier, stage="error", errors=[f"retrieval_error: {exc}"])
         except ExtractionError as exc:
             self._update(identifier, stage="error", errors=[f"{exc.code}: {exc}"])
         except Exception:  # noqa: BLE001 -- background boundary must record failure and release admission
@@ -93,3 +139,164 @@ class AnalysisService:
             with self._lock:
                 if self._active == identifier:
                     self._active = None
+
+    def admit_verification(
+        self, identifier: str, plan: VerificationPlan, *, comparison: bool = False
+    ) -> None:
+        with self._lock:
+            report = self._reports.get(identifier)
+            if report is None:
+                raise KeyError(identifier)
+            if self.runner is None:
+                raise NotImplementedError(
+                    "Verification must be enabled by the local operator"
+                )
+            if (
+                self._active is not None
+                or report.stage != "complete"
+                or identifier not in self._snapshots
+            ):
+                raise CapacityError(
+                    "Wait for a complete source investigation before verification"
+                )
+            if plan.claim_id not in {c.id for c in report.claims}:
+                raise ValueError("Unknown claim for verification")
+            if comparison and (
+                not self._requests[identifier].comparison_revision or report.comparisons
+            ):
+                raise ValueError(
+                    "Supply a comparison revision and use a fresh analysis for each comparison"
+                )
+            self._active = identifier
+
+    def run_verification(self, identifier: str, plan: VerificationPlan) -> None:
+        try:
+            self._update(identifier, stage="verifying")
+            run = self.runner(self._snapshots[identifier], plan)
+            if (
+                run.test_hash
+                != hashlib.sha256(plan.test_code.encode("utf-8")).hexdigest()
+            ):
+                raise ValueError("Execution hash differs from the approved test")
+            report = self.get(identifier)
+            new_evidence = []
+            findings = report.findings
+            if run.status not in ("not_run", "blocked"):
+                item = Evidence(
+                    id=f"execution-{run.id}",
+                    kind="execution",
+                    revision=run.revision,
+                    execution_id=run.id,
+                    excerpt=f"Status: {run.status}\n{run.stdout}\n{run.stderr}",
+                )
+                new_evidence.append(item)
+                if observed_expected_failure(run, plan):
+                    findings = [
+                        Finding(
+                            claim_id=f.claim_id,
+                            assessment="supported",
+                            evidence_ids=[item.id],
+                            explanation="The approved test failed and its output contains the declared expected failure.",
+                            limitations=[
+                                "Supports only the approved test and environment; review whether the test represents the claim."
+                            ],
+                        )
+                        if f.claim_id == plan.claim_id
+                        else f
+                        for f in findings
+                    ]
+            self._update(
+                identifier,
+                stage="complete",
+                executions=[*report.executions, run],
+                approved_tests=[
+                    *report.approved_tests,
+                    ApprovedTest(
+                        claim_id=plan.claim_id,
+                        test_hash=run.test_hash,
+                        test_code=plan.test_code,
+                        expected_failure=plan.expected_failure,
+                    ),
+                ],
+                evidence=[*report.evidence, *new_evidence],
+                findings=findings,
+            )
+        except Exception:  # noqa: BLE001 -- background boundary must release admission and record failure
+            self._update(
+                identifier,
+                stage="error",
+                errors=[
+                    "verification_error: Controlled verification failed to finish."
+                ],
+            )
+        finally:
+            with self._lock:
+                self._active = None
+
+    def run_comparison(self, identifier: str, plan: VerificationPlan) -> None:
+        try:
+            self._update(identifier, stage="loading")
+            request = self._requests[identifier]
+            after_snapshot = self.snapshot_loader(
+                request.repository, request.comparison_revision
+            )
+            self._update(
+                identifier, stage="verifying", comparison_revision=after_snapshot.commit
+            )
+            before = self.runner(self._snapshots[identifier], plan)
+            after = self.runner(after_snapshot, plan)
+            comparison = compare_runs(before, after, plan)
+            report = self.get(identifier)
+            evidence = [
+                Evidence(
+                    id=f"execution-{run.id}",
+                    kind="execution",
+                    revision=run.revision,
+                    execution_id=run.id,
+                    excerpt=f"Status: {run.status}\n{run.stdout}\n{run.stderr}",
+                )
+                for run in (before, after)
+                if run.status not in ("not_run", "blocked")
+            ]
+            findings = report.findings
+            if observed_expected_failure(before, plan):
+                findings = [
+                    Finding(
+                        claim_id=f.claim_id,
+                        assessment="supported",
+                        evidence_ids=[f"execution-{before.id}"],
+                        explanation="The approved test reproduced the declared exception on the original snapshot.",
+                        limitations=[
+                            "Limited to this reviewed test and recorded environment."
+                        ],
+                    )
+                    if f.claim_id == plan.claim_id
+                    else f
+                    for f in findings
+                ]
+            self._update(
+                identifier,
+                stage="complete",
+                executions=[*report.executions, before, after],
+                approved_tests=[
+                    *report.approved_tests,
+                    ApprovedTest(
+                        claim_id=plan.claim_id,
+                        test_hash=before.test_hash,
+                        test_code=plan.test_code,
+                        expected_failure=plan.expected_failure,
+                    ),
+                ],
+                evidence=[*report.evidence, *evidence],
+                findings=findings,
+                comparisons=[*report.comparisons, comparison],
+            )
+        except Exception:  # noqa: BLE001 -- isolate background work and always release admission
+            self._update(
+                identifier,
+                stage="error",
+                errors=["comparison_error: Controlled comparison could not finish."],
+            )
+        finally:
+            with self._lock:
+                self._active = None
