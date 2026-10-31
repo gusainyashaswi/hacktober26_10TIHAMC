@@ -1,6 +1,7 @@
 """Local API for the first extraction workflow; no repository execution."""
 
 import re
+from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
@@ -14,6 +15,7 @@ from nobluff.model import OllamaSettings
 from nobluff.model.extraction import MAX_REPORT_CHARS
 from nobluff.pipeline import AnalysisService, CapacityError
 from nobluff.reporting import export_report
+from nobluff.repositories import RepositoryLoader
 from nobluff.schemas import AnalysisReport, AnalysisRequest, Contract, Text
 
 
@@ -98,11 +100,23 @@ class BodyLimitMiddleware:
 
 
 def create_app(service: AnalysisService | None = None) -> FastAPI:
+    loader = None
     if service is None:
-        service = AnalysisService(OllamaSettings.from_env())
+        loader = RepositoryLoader.from_env()
+        service = AnalysisService(
+            OllamaSettings.from_env(), snapshot_loader=loader.load
+        )
+
+    @asynccontextmanager
+    async def lifespan(app):
+        yield
+        if loader is not None:
+            loader.close()
+
     app = FastAPI(
         title="NoBluff local analysis API",
-        description="Claim extraction only. Repository loading, evidence assessment and execution are not connected yet.",
+        description="Source-backed claim investigations. Static evidence is not runtime proof.",
+        lifespan=lifespan,
     )
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
@@ -134,11 +148,11 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
     def health():
         return {
             "status": "ok",
-            "scope": "claim_extraction",
+            "scope": "source_review" if service.snapshot_loader else "claim_extraction",
             "model": service.settings.model,
             "model_readiness": "not_checked",
-            "repository_loading": False,
-            "evidence_assessment": False,
+            "repository_loading": service.snapshot_loader is not None,
+            "evidence_assessment": service.snapshot_loader is not None,
             "verification": False,
         }
 
@@ -156,7 +170,9 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             content={"id": identifier},
             headers={
                 "Location": f"/api/analyses/{identifier}",
-                "X-NoBluff-Scope": "claim_extraction_only",
+                "X-NoBluff-Scope": "source_review"
+                if service.snapshot_loader
+                else "claim_extraction_only",
             },
         )
 

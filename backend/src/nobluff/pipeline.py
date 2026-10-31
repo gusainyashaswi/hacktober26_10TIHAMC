@@ -8,8 +8,10 @@ from nobluff.model import (
     ClaimExtractionResult,
     ExtractionError,
     OllamaSettings,
+    assess_claims,
     extract_claims,
 )
+from nobluff.retrieval import Snapshot, SnapshotError, retrieve_evidence
 from nobluff.schemas import AnalysisReport, AnalysisRequest
 
 
@@ -30,12 +32,18 @@ class AnalysisService:
         *,
         extractor: Callable[..., ClaimExtractionResult] = extract_claims,
         max_reports: int = 100,
+        snapshot_loader: Callable[[str, str], Snapshot] | None = None,
+        assessor: Callable = assess_claims,
     ):
         if max_reports < 1:
             raise ValueError("max_reports must be positive")
         self.settings = settings
         self.extractor = extractor
         self.max_reports = max_reports
+        self.snapshot_loader = snapshot_loader
+        self.assessor = assessor
+        self._snapshots: dict[str, Snapshot] = {}
+        self._requests: dict[str, AnalysisRequest] = {}
         self._reports: dict[str, AnalysisReport] = {}
         self._active: str | None = None
         self._lock = Lock()
@@ -59,6 +67,7 @@ class AnalysisService:
                 model=self.settings.model,
             )
             self._active = identifier
+            self._requests[identifier] = request.model_copy(deep=True)
             return identifier
 
     def get(self, identifier: str) -> AnalysisReport | None:
@@ -73,6 +82,14 @@ class AnalysisService:
 
     def run(self, identifier: str, report_text: str) -> None:
         try:
+            snapshot = None
+            if self.snapshot_loader:
+                self._update(identifier, stage="loading")
+                request = self._requests[identifier]
+                snapshot = self.snapshot_loader(request.repository, request.revision)
+                with self._lock:
+                    self._snapshots[identifier] = snapshot
+                self._update(identifier, revision=snapshot.commit)
             self._update(identifier, stage="extracting")
             result = self.extractor(report_text, self.settings)
             if result.model != self.settings.model:
@@ -80,6 +97,24 @@ class AnalysisService:
                     "unexpected_model", "The extractor returned a different model."
                 )
             self._update(identifier, stage="awaiting_evidence", claims=result.claims)
+            if snapshot is not None:
+                all_evidence = {}
+                findings = []
+                for claim in result.claims:
+                    self._update(identifier, stage="retrieving")
+                    snippets = retrieve_evidence(snapshot, [claim])
+                    all_evidence.update({item.id: item for item in snippets})
+                    self._update(
+                        identifier,
+                        stage="assessing",
+                        evidence=list(all_evidence.values()),
+                    )
+                    assessment = self.assessor([claim], snippets, self.settings)
+                    findings.extend(assessment.findings)
+                    self._update(identifier, findings=findings)
+                self._update(identifier, stage="complete")
+        except SnapshotError as exc:
+            self._update(identifier, stage="error", errors=[f"retrieval_error: {exc}"])
         except ExtractionError as exc:
             self._update(identifier, stage="error", errors=[f"{exc.code}: {exc}"])
         except Exception:  # noqa: BLE001 -- background boundary must record failure and release admission
