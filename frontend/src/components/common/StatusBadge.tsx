@@ -216,3 +216,4 @@ export function StageBadge({ stage }: StageBadgeProps) {
     </span>
   );
 }
+

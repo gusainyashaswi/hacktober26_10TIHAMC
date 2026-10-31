@@ -122,3 +122,4 @@ export interface VerificationPlan {
 export interface AcceptedAnalysis {
   id: string;
 }
+

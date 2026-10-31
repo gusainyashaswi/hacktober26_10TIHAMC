@@ -139,3 +139,4 @@ describe('Screens 5 & 6: Claims, Findings and Evidence Drawer', () => {
     expect(onClose).toHaveBeenCalled();
   });
 });
+

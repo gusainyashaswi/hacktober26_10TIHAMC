@@ -59,3 +59,4 @@ export interface HealthResponse {
   evidence_assessment: boolean;
   verification: boolean;
 }
+

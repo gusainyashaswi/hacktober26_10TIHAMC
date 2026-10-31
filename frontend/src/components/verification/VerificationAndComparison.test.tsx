@@ -206,3 +206,4 @@ describe('Screen 9: Before/After Comparison View', () => {
     expect(screen.getByText('Proposed Fix')).toBeInTheDocument();
   });
 });
+

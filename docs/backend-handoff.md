@@ -165,3 +165,4 @@ Returns full PR description, changed files, and immutable commit hashes selected
   Public repositories do not require maintainer credentials. The backend loader queries `api.github.com` and `codeload.github.com`.
 - **Rate-Limit Visibility:**
   When GitHub unauthenticated rate limits (60 req/hr) are reached, the API must return `429 Too Many Requests` or `SnapshotError("GitHub denied access or rate-limited this request")` with clear retry guidance.
+
