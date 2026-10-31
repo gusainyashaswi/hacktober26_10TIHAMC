@@ -193,6 +193,7 @@ def test_real_runner_controls_and_failure_categories(source_repo, test_code, sta
 @pytest.mark.runner
 def test_timeout_is_not_a_reproduced_bug(tmp_path):
     from nobluff.verification import run_verification
+    tmp_path.chmod(0o755)
     test = tmp_path / 'test_timeout.py'
     test.write_text('import time\ndef test_wait(): time.sleep(10)\n')
     run = run_verification(tmp_path, test, timeout_seconds=1, revision='fixture')
