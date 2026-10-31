@@ -40,6 +40,8 @@ jobs:
       - run: npm run build
 
   runner:
+    env:
+      NOBLUFF_RUNNER_IMAGE: nobluff-runner:ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

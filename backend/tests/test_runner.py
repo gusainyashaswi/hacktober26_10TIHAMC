@@ -32,8 +32,14 @@ from nobluff.verification.runner import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-_IMAGE = os.getenv("NOBLUFF_RUNNER_IMAGE", "nobluff-runner:ci")
 _CONTAINER_SRC = "/src"
+
+
+def _require_runner_image() -> str:
+    image = os.getenv("NOBLUFF_RUNNER_IMAGE")
+    if not image:
+        pytest.skip("NOBLUFF_RUNNER_IMAGE environment variable is required for runner tests")
+    return image
 
 
 def _make_test_file(tmp_path: Path, content: str) -> Path:
@@ -286,6 +292,62 @@ def test_run_verification_blocks_symlink_escape(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Unit: image configuration
+# ---------------------------------------------------------------------------
+
+
+def test_missing_image_configuration_returns_setup_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("NOBLUFF_RUNNER_IMAGE", raising=False)
+    test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
+    result = run_verification(tmp_path, test_file, timeout_seconds=30)
+    assert result.status == "setup_error"
+    assert result.exit_code is None
+    assert "image is not configured" in result.stderr.lower()
+
+
+def test_image_read_from_environment_when_argument_omitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    env_image = "custom-env-runner:v1"
+    monkeypatch.setenv("NOBLUFF_RUNNER_IMAGE", env_image)
+    test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
+    with (
+        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner.subprocess.Popen",
+            side_effect=OSError("simulated"),
+        ) as mock_popen,
+    ):
+        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        assert result.environment.get("image") == env_image
+        if mock_popen.called:
+            assert env_image in mock_popen.call_args_list[0][0][0]
+
+
+def test_image_argument_overrides_environment_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NOBLUFF_RUNNER_IMAGE", "from-env-runner:v1")
+    arg_image = "from-arg-runner:v2"
+    test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
+    with (
+        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner.subprocess.Popen",
+            side_effect=OSError("simulated"),
+        ) as mock_popen,
+    ):
+        result = run_verification(
+            tmp_path, test_file, image=arg_image, timeout_seconds=30
+        )
+        assert result.environment.get("image") == arg_image
+        if mock_popen.called:
+            assert arg_image in mock_popen.call_args_list[0][0][0]
+
+
+# ---------------------------------------------------------------------------
 # Unit: setup_error when docker is absent
 # ---------------------------------------------------------------------------
 
@@ -294,7 +356,9 @@ def test_run_verification_setup_error_no_docker(tmp_path: Path) -> None:
     test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
 
     with patch("nobluff.verification.runner._docker_bin", return_value=None):
-        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        result = run_verification(
+            tmp_path, test_file, image="test-runner:ci", timeout_seconds=30
+        )
 
     assert result.status == "setup_error"
     assert result.exit_code is None
@@ -311,7 +375,9 @@ def test_run_verification_result_has_hash(tmp_path: Path) -> None:
     expected_hash = hashlib.sha256(test_file.read_bytes()).hexdigest()
 
     with patch("nobluff.verification.runner._docker_bin", return_value=None):
-        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        result = run_verification(
+            tmp_path, test_file, image="test-runner:ci", timeout_seconds=30
+        )
 
     assert result.test_hash == expected_hash
 
@@ -320,7 +386,9 @@ def test_run_verification_result_has_uuid_id(tmp_path: Path) -> None:
     test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
 
     with patch("nobluff.verification.runner._docker_bin", return_value=None):
-        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        result = run_verification(
+            tmp_path, test_file, image="test-runner:ci", timeout_seconds=30
+        )
 
     uuid.UUID(result.id)  # raises if not a valid UUID
 
@@ -329,7 +397,9 @@ def test_run_verification_result_duration_non_negative(tmp_path: Path) -> None:
     test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
 
     with patch("nobluff.verification.runner._docker_bin", return_value=None):
-        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        result = run_verification(
+            tmp_path, test_file, image="test-runner:ci", timeout_seconds=30
+        )
 
     assert result.duration_ms >= 0
 
@@ -348,7 +418,9 @@ def test_run_verification_command_is_list(tmp_path: Path) -> None:
             side_effect=OSError("simulated"),
         ),
     ):
-        result = run_verification(tmp_path, test_file, timeout_seconds=30)
+        result = run_verification(
+            tmp_path, test_file, image="test-runner:ci", timeout_seconds=30
+        )
 
     assert isinstance(result.command, list)
     assert len(result.command) >= 1
@@ -382,8 +454,9 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
 
 @pytest.mark.runner
 def test_passing_test_returns_passed(tmp_path: Path) -> None:
+    _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_always_pass(): assert True\n")
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
     assert result.status == "passed", result.stdout + result.stderr
     assert result.exit_code == 0
     assert len(result.test_hash) == 64
@@ -391,17 +464,19 @@ def test_passing_test_returns_passed(tmp_path: Path) -> None:
 
 @pytest.mark.runner
 def test_failing_test_returns_failed(tmp_path: Path) -> None:
+    _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_always_fail(): assert False\n")
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
     assert result.status == "failed", result.stdout + result.stderr
     assert result.exit_code != 0
 
 
 @pytest.mark.runner
 def test_syntax_error_test_returns_failed(tmp_path: Path) -> None:
+    _require_runner_image()
     test_file = tmp_path / "test_broken.py"
     test_file.write_text("def test_broken(: pass\n")
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
     # Pytest reports collection errors as exit code 4 (ERROR), still "failed"
     assert result.status in ("failed", "setup_error")
     assert result.status == "setup_error"
@@ -410,9 +485,10 @@ def test_syntax_error_test_returns_failed(tmp_path: Path) -> None:
 
 @pytest.mark.runner
 def test_result_records_image_and_command(tmp_path: Path) -> None:
+    img = _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
-    assert _IMAGE in result.command
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
+    assert img in result.command
     assert "docker" == result.command[0]
 
 
@@ -421,8 +497,9 @@ def test_result_is_valid_execution_result_schema(tmp_path: Path) -> None:
     """ExecutionResult validates correctly after a real run."""
     from nobluff.schemas import ExecutionResult as SchemaResult
 
+    _require_runner_image()
     test_file = _make_test_file(tmp_path, "def test_ok(): pass\n")
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
     # Re-validate through pydantic to ensure field constraints are met
     SchemaResult.model_validate(result.model_dump())
 
@@ -443,6 +520,7 @@ def test_nonexistent_image_returns_setup_error(tmp_path: Path) -> None:
 @pytest.mark.runner
 def test_whoami_confirms_non_root(tmp_path: Path) -> None:
     """Container must not run as root (uid != 0)."""
+    _require_runner_image()
     tmp_path.chmod(0o755)
     test_file = tmp_path / "test_whoami.py"
     test_file.write_text(
@@ -452,5 +530,17 @@ def test_whoami_confirms_non_root(tmp_path: Path) -> None:
             assert os.getuid() != 0
         """)
     )
-    result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
     assert result.status == "passed", result.stdout + result.stderr
+
+
+@pytest.mark.runner
+def test_runner_executes_with_monkeypatched_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    img = _require_runner_image()
+    monkeypatch.setenv("NOBLUFF_RUNNER_IMAGE", img)
+    test_file = _make_test_file(tmp_path, "def test_pass(): assert True\n")
+    result = run_verification(tmp_path, test_file, timeout_seconds=60)
+    assert result.status == "passed", result.stdout + result.stderr
+    assert result.environment.get("image") == img

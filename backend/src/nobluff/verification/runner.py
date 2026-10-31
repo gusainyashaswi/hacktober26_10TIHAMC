@@ -26,7 +26,7 @@ from nobluff.schemas import ExecutionResult, ExecutionStatus
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_IMAGE = "nobluff-runner:ci"
+_ENV_RUNNER_IMAGE = "NOBLUFF_RUNNER_IMAGE"
 
 # Docker resource caps (conservative laptop-friendly values).
 _CPUS = "1"
@@ -216,7 +216,7 @@ def run_verification(
     source_dir: Path | str,
     test_file: Path | str,
     timeout_seconds: float = 120.0,
-    image: str = _DEFAULT_IMAGE,
+    image: str | None = None,
     revision: str = _NO_REVISION,
 ) -> ExecutionResult:
     """Run *test_file* inside a Docker container with hard resource limits.
@@ -232,7 +232,8 @@ def run_verification(
     timeout_seconds:
         Wall-clock timeout enforced by this process (Python-side).
     image:
-        Docker image to run. Must be pre-built; this function never pulls.
+        Docker image to run. If not provided, reads NOBLUFF_RUNNER_IMAGE
+        from environment. Must be pre-built; this function never pulls.
     revision:
         VCS revision string recorded in the result (informational only).
 
@@ -291,7 +292,28 @@ def run_verification(
         )
 
     # ------------------------------------------------------------------
-    # 3. Locate docker.
+    # 3. Resolve runner image from argument or environment.
+    # ------------------------------------------------------------------
+    resolved_image = image if image is not None else os.environ.get(_ENV_RUNNER_IMAGE)
+    if resolved_image is not None:
+        resolved_image = resolved_image.strip() or None
+
+    if not resolved_image:
+        return ExecutionResult(
+            id=run_id,
+            revision=revision,
+            test_hash=test_hash,
+            command=_NO_CMD,
+            environment={},
+            status="setup_error",
+            exit_code=None,
+            stdout="",
+            stderr="setup_error: runner image is not configured (set NOBLUFF_RUNNER_IMAGE or pass image)",
+            duration_ms=0,
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Locate docker.
     # ------------------------------------------------------------------
     docker = _docker_bin()
     if docker is None:
@@ -307,17 +329,18 @@ def run_verification(
             stderr="setup_error: docker executable not found on PATH",
             duration_ms=0,
         )
+
     # ------------------------------------------------------------------
-    # 4. Build the command.
+    # 5. Build the command.
     # ------------------------------------------------------------------
     cmd = _build_command(
         container_name=container_name,
         source_dir=source_dir,
         test_rel=test_rel.replace(os.sep, "/"),
-        image=image,
+        image=resolved_image,
     )
 
-    env_record = {"image": image, "timeout_seconds": str(timeout_seconds)}
+    env_record = {"image": resolved_image, "timeout_seconds": str(timeout_seconds)}
 
     # ------------------------------------------------------------------
     # 5. Run with wall-clock enforcement.
