@@ -1,5 +1,6 @@
 """Local API for the first extraction workflow; no repository execution."""
 
+import os
 import re
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -17,6 +18,7 @@ from nobluff.pipeline import AnalysisService, CapacityError
 from nobluff.reporting import export_report
 from nobluff.repositories import RepositoryLoader
 from nobluff.schemas import AnalysisReport, AnalysisRequest, Contract, Text
+from nobluff.verification.policy import VerificationPlan, verify_snapshot
 
 
 class APIAnalysisRequest(AnalysisRequest):
@@ -104,7 +106,11 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
     if service is None:
         loader = RepositoryLoader.from_env()
         service = AnalysisService(
-            OllamaSettings.from_env(), snapshot_loader=loader.load
+            OllamaSettings.from_env(),
+            snapshot_loader=loader.load,
+            runner=verify_snapshot
+            if os.getenv("NOBLUFF_ENABLE_VERIFICATION") == "1"
+            else None,
         )
 
     @asynccontextmanager
@@ -153,7 +159,7 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             "model_readiness": "not_checked",
             "repository_loading": service.snapshot_loader is not None,
             "evidence_assessment": service.snapshot_loader is not None,
-            "verification": False,
+            "verification": service.runner is not None,
         }
 
     @app.post("/api/analyses", status_code=202, response_model=AcceptedAnalysis)
@@ -202,15 +208,31 @@ def create_app(service: AnalysisService | None = None) -> FastAPI:
             },
         )
 
-    @app.post("/api/analyses/{identifier}/verification", status_code=501)
-    def verification_unavailable(identifier: str):
+    @app.post("/api/analyses/{identifier}/verification", status_code=202)
+    def verification(
+        identifier: str,
+        background: BackgroundTasks,
+        plan: VerificationPlan | None = None,
+    ):
         if service.get(identifier) is None:
+            raise HTTPException(status_code=404, detail="Analysis not found.")
+        if service.runner is None:
             raise HTTPException(
-                status_code=404, detail="Analysis not found in this server process."
+                status_code=501,
+                detail="Controlled verification is disabled. No code was executed.",
             )
-        raise HTTPException(
-            status_code=501,
-            detail="Controlled verification is not connected. No code was executed.",
-        )
+        if plan is None:
+            raise HTTPException(
+                status_code=422,
+                detail="A reviewed test and explicit approval are required.",
+            )
+        try:
+            service.admit_verification(identifier, plan)
+        except CapacityError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        background.add_task(service.run_verification, identifier, plan)
+        return {"analysis_id": identifier, "status": "verification_accepted"}
 
     return app

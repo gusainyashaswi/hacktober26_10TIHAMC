@@ -213,28 +213,46 @@ def test_build_command_has_resource_limits(tmp_path: Path) -> None:
 
 
 def test_classify_passed() -> None:
-    assert _classify(returncode=0, timed_out=False, setup_error=False, blocked=False) == "passed"
+    assert (
+        _classify(returncode=0, timed_out=False, setup_error=False, blocked=False)
+        == "passed"
+    )
 
 
 def test_classify_failed() -> None:
-    assert _classify(returncode=1, timed_out=False, setup_error=False, blocked=False) == "failed"
+    assert (
+        _classify(returncode=1, timed_out=False, setup_error=False, blocked=False)
+        == "failed"
+    )
 
 
 def test_classify_timeout() -> None:
-    assert _classify(returncode=None, timed_out=True, setup_error=False, blocked=False) == "timeout"
+    assert (
+        _classify(returncode=None, timed_out=True, setup_error=False, blocked=False)
+        == "timeout"
+    )
 
 
 def test_classify_setup_error() -> None:
-    assert _classify(returncode=None, timed_out=False, setup_error=True, blocked=False) == "setup_error"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=True, blocked=False)
+        == "setup_error"
+    )
 
 
 def test_classify_blocked() -> None:
-    assert _classify(returncode=None, timed_out=False, setup_error=False, blocked=True) == "blocked"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=False, blocked=True)
+        == "blocked"
+    )
 
 
 def test_classify_blocked_wins_over_setup_error() -> None:
     # blocked takes highest priority
-    assert _classify(returncode=None, timed_out=False, setup_error=True, blocked=True) == "blocked"
+    assert (
+        _classify(returncode=None, timed_out=False, setup_error=True, blocked=True)
+        == "blocked"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +321,6 @@ def test_run_verification_result_has_uuid_id(tmp_path: Path) -> None:
     with patch("nobluff.verification.runner._docker_bin", return_value=None):
         result = run_verification(tmp_path, test_file, timeout_seconds=30)
 
-
     uuid.UUID(result.id)  # raises if not a valid UUID
 
 
@@ -322,7 +339,9 @@ def test_run_verification_command_is_list(tmp_path: Path) -> None:
 
     # Patch docker found, but Popen raises OSError.
     with (
-        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"
+        ),
         patch(
             "nobluff.verification.runner.subprocess.Popen",
             side_effect=OSError("simulated"),
@@ -340,7 +359,9 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
     custom_image = "my-custom-runner:latest"
 
     with (
-        patch("nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"),
+        patch(
+            "nobluff.verification.runner._docker_bin", return_value="/usr/bin/docker"
+        ),
         patch(
             "nobluff.verification.runner.subprocess.Popen",
             side_effect=OSError("simulated"),
@@ -349,7 +370,7 @@ def test_run_verification_image_recorded_in_command(tmp_path: Path) -> None:
         run_verification(tmp_path, test_file, image=custom_image, timeout_seconds=30)
         # Inspect the call args to verify image is in the command list
         if mock_popen.called:
-            call_args = mock_popen.call_args[0][0]
+            call_args = mock_popen.call_args_list[0][0][0]
             assert custom_image in call_args
 
 
@@ -382,7 +403,8 @@ def test_syntax_error_test_returns_failed(tmp_path: Path) -> None:
     result = run_verification(tmp_path, test_file, image=_IMAGE, timeout_seconds=60)
     # Pytest reports collection errors as exit code 4 (ERROR), still "failed"
     assert result.status in ("failed", "setup_error")
-    assert result.exit_code not in (0, None)
+    assert result.status == "setup_error"
+    assert result.exit_code is None
 
 
 @pytest.mark.runner

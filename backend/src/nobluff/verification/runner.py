@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import selectors
 import shutil
 import subprocess
 import time
@@ -90,12 +91,25 @@ def _build_command(
     return [
         "docker",
         "run",
+        "--pull=never",
         "--rm",
         "--name",
         container_name,
         "--network",
         "none",
         "--read-only",
+        "--cap-drop",
+        "ALL",
+        "--security-opt",
+        "no-new-privileges",
+        "--memory-swap",
+        _MEMORY,
+        "--env",
+        "PYTHONPATH=/src:/src/src",
+        "--env",
+        "PYTHONDONTWRITEBYTECODE=1",
+        "--env",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
         "--user",
         "runner",
         "--cpus",
@@ -136,14 +150,46 @@ def _classify(
         return "timeout"
     if returncode == 0:
         return "passed"
-    return "failed"
+    return "failed" if returncode == 1 else "setup_error"
+
+
+def _read_bounded(proc, timeout):
+    """Drain both pipes with bounded retained memory, not communicate-then-cap."""
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    truncated = set()
+    deadline = time.monotonic() + timeout
+    with selectors.DefaultSelector() as selector:
+        selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(proc.stderr, selectors.EVENT_READ, "stderr")
+        while selector.get_map():
+            if time.monotonic() > deadline:
+                raise subprocess.TimeoutExpired(
+                    proc.args,
+                    timeout,
+                    output=bytes(buffers["stdout"]),
+                    stderr=bytes(buffers["stderr"]),
+                )
+            for key, _ in selector.select(0.1):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                    continue
+                remaining = _MAX_OUTPUT_BYTES - len(buffers[key.data])
+                buffers[key.data].extend(chunk[: max(0, remaining)])
+                if len(chunk) > remaining:
+                    truncated.add(key.data)
+    proc.wait(timeout=2)
+    return tuple(
+        bytes(buffers[name]) + (b"\n[truncated]" if name in truncated else b"")
+        for name in ("stdout", "stderr")
+    )
 
 
 def _stop_container(docker: str, name: str) -> None:
     """Best-effort: stop and remove a named container."""
     try:
         subprocess.run(
-            [docker, "stop", name],
+            [docker, "stop", "-t", "0", name],
             check=False,
             capture_output=True,
             timeout=10,
@@ -290,7 +336,7 @@ def run_verification(
             stderr=subprocess.PIPE,
         )
         try:
-            raw_bytes_out, raw_bytes_err = proc.communicate(timeout=timeout_seconds)
+            raw_bytes_out, raw_bytes_err = _read_bounded(proc, timeout_seconds)
             returncode = proc.returncode
             raw_stdout = raw_bytes_out.decode("utf-8", errors="replace")
             raw_stderr = raw_bytes_err.decode("utf-8", errors="replace")
@@ -299,13 +345,13 @@ def run_verification(
             if returncode in (125, 126):
                 setup_error = True
 
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             timed_out = True
             proc.kill()
+            raw_stdout = (exc.output or b"").decode("utf-8", errors="replace")
+            raw_stderr = (exc.stderr or b"").decode("utf-8", errors="replace")
             try:
-                raw_bytes_out, raw_bytes_err = proc.communicate(timeout=5)
-                raw_stdout = raw_bytes_out.decode("utf-8", errors="replace")
-                raw_stderr = raw_bytes_err.decode("utf-8", errors="replace")
+                proc.communicate(timeout=5)
             except Exception:  # noqa: BLE001, S110
                 pass
             _stop_container(docker, container_name)
@@ -319,6 +365,7 @@ def run_verification(
         raw_stderr = f"setup_error: {exc}"
 
     duration_ms = int((time.monotonic() - t0) * 1000)
+    _stop_container(docker, container_name)
 
     # ------------------------------------------------------------------
     # 6. Cap output, classify and return.
