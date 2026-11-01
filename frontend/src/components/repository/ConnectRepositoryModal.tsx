@@ -212,7 +212,37 @@ export function ConnectRepositoryModal({
               data-error-type={errorType}
             >
               <IconAlertCircle size={16} className="callout-icon" />
-              <div className="callout-content">{errorMessage}</div>
+              <div className="callout-content">
+                <div>{errorMessage}</div>
+                {errorType === 'rate_limit' && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={async () => {
+                        try {
+                          setState('connecting');
+                          setErrorMessage(null);
+                          const result = await devConnectRepository(input.trim());
+                          setState('connected');
+                          setConnectedRepo(result.repository);
+                          setTimeout(() => {
+                            onConnected(result.repository);
+                            if (onClose) onClose();
+                          }, 500);
+                        } catch (devErr: unknown) {
+                          setState('error');
+                          setErrorMessage(
+                            devErr instanceof Error ? devErr.message : String(devErr),
+                          );
+                        }
+                      }}
+                    >
+                      Connect with offline fixture
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
