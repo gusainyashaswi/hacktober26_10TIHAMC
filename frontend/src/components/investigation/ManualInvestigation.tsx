@@ -20,7 +20,7 @@ export function ManualInvestigation({
   onSubmit,
 }: ManualInvestigationProps) {
   const [repository, setRepository] = useState(
-    currentRepository?.fullName || 'https://github.com/pallets/flask',
+    currentRepository?.full_name || 'https://github.com/pallets/flask',
   );
   const [revision, setRevision] = useState('main');
   const [comparisonRevision, setComparisonRevision] = useState('');

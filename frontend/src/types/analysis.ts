@@ -101,6 +101,8 @@ export interface AnalysisReport {
   repository: string;
   revision: string;
   comparison_revision?: string | null;
+  source_revision?: string | null;
+  source_repository?: string | null;
   model: string;
   stage: Stage;
   claims: Claim[];
@@ -121,5 +123,6 @@ export interface VerificationPlan {
 
 export interface AcceptedAnalysis {
   id: string;
+  context?: Record<string, unknown>;
 }
 

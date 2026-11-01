@@ -37,7 +37,7 @@ export function AssessmentBadge({ assessment }: AssessmentBadgeProps) {
   return (
     <span className="badge badge-inconclusive">
       <IconAlertTriangle size={12} />
-      <span>Inconclusive</span>
+      <span>Unverified</span>
     </span>
   );
 }
@@ -109,14 +109,14 @@ export function ComparisonStatusBadge({ status }: ComparisonStatusBadgeProps) {
       return (
         <span className="badge badge-inconclusive">
           <IconAlertTriangle size={12} />
-          <span>Not reproduced for this test</span>
+          <span>Not reproduced by this test</span>
         </span>
       );
     case 'still_failing':
       return (
         <span className="badge badge-contradicted">
           <IconAlertCircle size={12} />
-          <span>Still failing after change</span>
+          <span>Test still fails</span>
         </span>
       );
     case 'inconclusive':
@@ -124,7 +124,7 @@ export function ComparisonStatusBadge({ status }: ComparisonStatusBadgeProps) {
       return (
         <span className="badge badge-inconclusive">
           <IconAlertTriangle size={12} />
-          <span>Inconclusive comparison</span>
+          <span>Unverified</span>
         </span>
       );
   }

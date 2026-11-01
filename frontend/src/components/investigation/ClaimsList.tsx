@@ -135,7 +135,7 @@ export function ClaimsList({
                           <IconAlertTriangle size={13} className="text-amber" />
                           <span className="limitations-title">
                             {finding.assessment === 'inconclusive'
-                              ? 'Missing Evidence / Inconclusive Factor:'
+                              ? 'Missing Evidence / Unverified Factor:'
                               : 'Limitations & Scope:'}
                           </span>
                         </div>

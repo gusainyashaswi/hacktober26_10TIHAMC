@@ -2,14 +2,37 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import App from './App';
 import * as client from './api/client';
-import { saveConnectedRepositories, saveSelectedRepoId } from './api/storage';
+import { saveSelectedRepoId } from './api/storage';
+import { ConnectedRepository, PullDetail } from './types/repository';
 import { AnalysisReport } from './types/analysis';
+
+const repository: ConnectedRepository = {
+  id: 1, full_name: 'pallets/flask', url: 'https://github.com/pallets/flask',
+  default_branch: 'main', connected_at: '2026-10-31T20:00:00Z',
+};
+const pull: PullDetail = {
+  number: 4892, title: 'Fix request argument parsing when query string contains malformed input',
+  author: 'contributor', url: 'https://github.com/pallets/flask/pull/4892',
+  state: 'open', draft: false, updated_at: '2026-10-31T20:00:00Z',
+  head_sha: 'f849a64e1c28c89b2751f7253507d62058fa72da',
+  base_sha: 'd5c21f0a82e75e5eb461b203498a964e52b2ef81',
+  head_branch: 'fix', base_branch: 'main', head_repository: repository.url,
+  body: 'Fix malformed input handling.', additions: 1, deletions: 1,
+  changed_files: 1, merged: false, history: [],
+};
 
 describe('NoBluff Connect-Once and PR Workflow', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
 
+    vi.spyOn(client, 'fetchRepositories').mockResolvedValue([repository]);
+    vi.spyOn(client, 'connectRepository').mockResolvedValue(repository);
+    vi.spyOn(client, 'fetchPullRequests').mockResolvedValue({
+      items: [pull], page: 1, has_more: false, refreshed_at: pull.updated_at,
+    });
+    vi.spyOn(client, 'fetchPullRequestDetail').mockResolvedValue(pull);
+    vi.spyOn(client, 'fetchInvestigations').mockResolvedValue([]);
     // Default health mock
     vi.spyOn(client, 'fetchHealth').mockResolvedValue({
       status: 'ok',
@@ -27,7 +50,9 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
   });
 
   it('renders connect screen on initial visit with no connected repo and connects repository (Requirement 1)', async () => {
+    vi.mocked(client.fetchRepositories).mockResolvedValue([]);
     render(<App />);
+    await screen.findByRole('heading', { name: /connect repository/i });
 
     // Connect modal should appear automatically on first visit
     expect(screen.getByRole('heading', { name: /connect repository/i })).toBeInTheDocument();
@@ -49,25 +74,13 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
   });
 
   it('restores connected repository and loads PR inbox automatically across sessions (Requirement 1 & 2)', async () => {
-    saveConnectedRepositories([
-      {
-        id: 'pallets/flask',
-        owner: 'pallets',
-        name: 'flask',
-        fullName: 'pallets/flask',
-        url: 'https://github.com/pallets/flask',
-        defaultBranch: 'main',
-        isPrivate: false,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    saveSelectedRepoId('pallets/flask');
+    saveSelectedRepoId(1);
 
     render(<App />);
 
     // Should directly render PR Inbox without showing Connect modal
     expect(screen.queryByRole('heading', { name: /connect repository/i })).not.toBeInTheDocument();
-    expect(screen.getByText('flask')).toBeInTheDocument();
+    expect(await screen.findByText('flask')).toBeInTheDocument();
 
     // PR rows should load automatically
     await waitFor(() => {
@@ -78,23 +91,11 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
     });
 
     // Clearly labeled development adapter banner (Requirement 14)
-    expect(screen.getByText(/Dev Adapter/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Dev Adapter Mode/i)).not.toBeInTheDocument();
   });
 
   it('selects a PR without manually pasting its description and displays comparison revisions (Requirement 3)', async () => {
-    saveConnectedRepositories([
-      {
-        id: 'pallets/flask',
-        owner: 'pallets',
-        name: 'flask',
-        fullName: 'pallets/flask',
-        url: 'https://github.com/pallets/flask',
-        defaultBranch: 'main',
-        isPrivate: false,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    saveSelectedRepoId('pallets/flask');
+    saveSelectedRepoId(1);
 
     render(<App />);
 
@@ -113,21 +114,9 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
   });
 
   it('submits analysis with backend-provided context and stops polling at terminal complete state (Requirement 4 & 5)', async () => {
-    saveConnectedRepositories([
-      {
-        id: 'pallets/flask',
-        owner: 'pallets',
-        name: 'flask',
-        fullName: 'pallets/flask',
-        url: 'https://github.com/pallets/flask',
-        defaultBranch: 'main',
-        isPrivate: false,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    saveSelectedRepoId('pallets/flask');
+    saveSelectedRepoId(1);
 
-    const submitSpy = vi.spyOn(client, 'submitAnalysis').mockResolvedValue({
+    const submitSpy = vi.spyOn(client, 'submitPRAnalysis').mockResolvedValue({
       id: 'analysis-1234',
     });
 
@@ -178,13 +167,7 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
 
     // Verify submitAnalysis called with backend context
     await waitFor(() => {
-      expect(submitSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          repository: 'https://github.com/pallets/flask',
-          revision: 'd5c21f0a82e75e5eb461b203498a964e52b2ef81',
-          comparison_revision: 'f849a64e1c28c89b2751f7253507d62058fa72da',
-        }),
-      );
+      expect(submitSpy).toHaveBeenCalledWith(1, 4892);
     });
 
     // Verification of findings loaded
@@ -193,37 +176,23 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
       expect(
         screen.getByRole('heading', { name: /unquote raises UnicodeDecodeError/i }),
       ).toBeInTheDocument();
-      expect(screen.getByText('Inconclusive')).toBeInTheDocument();
+      expect(screen.getByText('Unverified')).toBeInTheDocument();
     });
   });
 
   it('marks an analysis stale when PR head commit changes (Requirement 13)', async () => {
-    saveConnectedRepositories([
-      {
-        id: 'pallets/flask',
-        owner: 'pallets',
-        name: 'flask',
-        fullName: 'pallets/flask',
-        url: 'https://github.com/pallets/flask',
-        defaultBranch: 'main',
-        isPrivate: false,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    saveSelectedRepoId('pallets/flask');
+    saveSelectedRepoId(1);
 
-    // Simulate an older analysis against an earlier commit
-    localStorage.setItem(
-      'nobluff:pr_analysis_map:pallets/flask',
-      JSON.stringify({
-        4892: {
-          analysisId: 'old-analysis-001',
-          analysedHeadCommit: 'earlier-commit-hash-00000',
-          status: 'complete',
-          updatedAt: new Date().toISOString(),
-        },
-      }),
-    );
+    const previous = {
+      id: 'old-analysis-001', created_at: pull.updated_at, repository: repository.url,
+      revision: pull.base_sha, comparison_revision: 'a'.repeat(40), stage: 'complete',
+      context: { pr_number: 4892, head_sha: 'a'.repeat(40), title: pull.title,
+        url: pull.url, head_repository: repository.url, base_tip_sha: pull.base_sha,
+        comparison_basis: 'merge_base', files: [], diff_note: '' },
+      outdated: true,
+    };
+    vi.mocked(client.fetchInvestigations).mockResolvedValue([previous]);
+    vi.mocked(client.fetchPullRequestDetail).mockResolvedValue({ ...pull, history: [previous] });
 
     render(<App />);
 
@@ -238,7 +207,7 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
 
     // PR Details should show the stale warning banner
     await waitFor(() => {
-      expect(screen.getByText(/PR head commit changed:/i)).toBeInTheDocument();
+      expect(screen.getByText(/this PR has new commits since this investigation/i)).toBeInTheDocument();
       expect(
         screen.getAllByRole('button', { name: /analyse latest revision/i }).length,
       ).toBeGreaterThanOrEqual(1);
@@ -246,22 +215,10 @@ describe('NoBluff Connect-Once and PR Workflow', () => {
   });
 
   it('preserves user context and shows useful error on network failure (Requirement 8)', async () => {
-    saveConnectedRepositories([
-      {
-        id: 'pallets/flask',
-        owner: 'pallets',
-        name: 'flask',
-        fullName: 'pallets/flask',
-        url: 'https://github.com/pallets/flask',
-        defaultBranch: 'main',
-        isPrivate: false,
-        connectedAt: new Date().toISOString(),
-      },
-    ]);
-    saveSelectedRepoId('pallets/flask');
+    saveSelectedRepoId(1);
 
     // Mock network failure for submitAnalysis
-    vi.spyOn(client, 'submitAnalysis').mockRejectedValue(
+    vi.spyOn(client, 'submitPRAnalysis').mockRejectedValue(
       new Error('Backend connection refused (port 8000)'),
     );
     const alertMock = vi.spyOn(window, 'alert').mockImplementation(() => {});

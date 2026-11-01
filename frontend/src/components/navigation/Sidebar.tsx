@@ -19,7 +19,7 @@ interface SidebarProps {
   health: HealthResponse | null;
   isDevMode: boolean;
   onNavigate: (view: AppView) => void;
-  onSelectRepository: (repoId: string) => void;
+  onSelectRepository: (repoId: number) => void;
   onOpenConnectModal: () => void;
   onOpenSettingsModal: () => void;
 }
@@ -56,13 +56,13 @@ export function Sidebar({
           onClick={() => setRepoDropdownOpen(!repoDropdownOpen)}
           aria-expanded={repoDropdownOpen}
           aria-haspopup="listbox"
-          title={selectedRepository ? selectedRepository.fullName : 'Connect repository'}
+          title={selectedRepository ? selectedRepository.full_name : 'Connect repository'}
         >
           <IconRepo size={15} className="repo-icon" />
           <div className="repo-selector-text">
             <span className="selector-label">Repository</span>
             <span className="selector-current">
-              {selectedRepository ? selectedRepository.fullName : 'Connect repo...'}
+              {selectedRepository ? selectedRepository.full_name : 'Connect repo...'}
             </span>
           </div>
           <IconChevronDown size={14} className="dropdown-arrow" />
@@ -85,7 +85,7 @@ export function Sidebar({
                   setRepoDropdownOpen(false);
                 }}
               >
-                <span className="item-name">{repo.fullName}</span>
+                <span className="item-name">{repo.full_name}</span>
                 {selectedRepository?.id === repo.id && (
                   <IconCheck size={12} className="text-forest" />
                 )}
