@@ -24,6 +24,7 @@ def _resolve_token() -> str | None:
             capture_output=True,
             timeout=2,
             check=False,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
         if proc.returncode == 0:
             for line in proc.stdout.decode("utf-8", errors="replace").splitlines():

@@ -24,6 +24,11 @@ from nobluff.retrieval import (
 )
 
 
+MAX_ARCHIVE_DOWNLOAD_SIZE = int(
+    os.getenv("NOBLUFF_MAX_ARCHIVE_SIZE", str(100 * 1024 * 1024))
+)
+
+
 class RepositoryLoader:
     def __init__(
         self,
@@ -52,8 +57,22 @@ class RepositoryLoader:
 
     def _get(self, client, url, limit):
         try:
+            headers = {}
+            if "api.github.com" in url:
+                try:
+                    from nobluff.github import _resolve_token
+
+                    token = _resolve_token()
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                except Exception:
+                    pass
             with client.stream(
-                "GET", url, timeout=httpx.Timeout(30, connect=5), follow_redirects=False
+                "GET",
+                url,
+                headers=headers,
+                timeout=httpx.Timeout(60, connect=10),
+                follow_redirects=False,
             ) as response:
                 if response.status_code in (401, 403, 429):
                     raise SnapshotError(
@@ -117,7 +136,7 @@ class RepositoryLoader:
         archive = self._get(
             client,
             f"https://codeload.github.com/{owner}/{name}/zip/{commit}",
-            20 * 1024 * 1024,
+            MAX_ARCHIVE_DOWNLOAD_SIZE,
         )
         directory = tempfile.TemporaryDirectory(prefix="nobluff-snapshot-")
         root = Path(directory.name)
