@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 import httpx
 
+from nobluff.github import _resolve_token
 from nobluff.retrieval import (
     MAX_FILE_SIZE,
     MAX_FILES,
@@ -22,7 +23,6 @@ from nobluff.retrieval import (
     load_local_snapshot,
     safe_path,
 )
-
 
 MAX_ARCHIVE_DOWNLOAD_SIZE = int(
     os.getenv("NOBLUFF_MAX_ARCHIVE_SIZE", str(100 * 1024 * 1024))
@@ -59,14 +59,9 @@ class RepositoryLoader:
         try:
             headers = {}
             if "api.github.com" in url:
-                try:
-                    from nobluff.github import _resolve_token
-
-                    token = _resolve_token()
-                    if token:
-                        headers["Authorization"] = f"Bearer {token}"
-                except Exception:
-                    pass
+                token = _resolve_token()
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
             with client.stream(
                 "GET",
                 url,
