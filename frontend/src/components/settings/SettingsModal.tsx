@@ -13,14 +13,14 @@ import {
 interface SettingsModalProps {
   isOpen: boolean;
   connectedRepositories: ConnectedRepository[];
-  selectedRepoId: string | null;
+  selectedRepoId: number | null;
   health: HealthResponse | null;
   healthLoading: boolean;
   isDevMode: boolean;
   onClose: () => void;
   onRefreshHealth: () => void;
-  onSelectRepo: (id: string) => void;
-  onDisconnectRepo: (id: string) => void;
+  onSelectRepo: (id: number) => void;
+  onDisconnectRepo: (id: number) => void;
   onToggleDevMode: (enabled: boolean) => void;
   onConnectNewRepo: () => void;
 }
@@ -39,7 +39,7 @@ export function SettingsModal({
   onToggleDevMode,
   onConnectNewRepo,
 }: SettingsModalProps) {
-  const [confirmDisconnectId, setConfirmDisconnectId] = useState<string | null>(null);
+  const [confirmDisconnectId, setConfirmDisconnectId] = useState<number | null>(null);
 
   if (!isOpen) return null;
 
@@ -99,13 +99,13 @@ export function SettingsModal({
                         <IconRepo size={16} className="text-secondary" />
                         <div>
                           <div className="repo-item-title">
-                            <strong>{repo.fullName}</strong>
+                            <strong>{repo.full_name}</strong>
                             {isSelected && (
                               <span className="badge badge-subtle ml-2">Active</span>
                             )}
                           </div>
                           <span className="repo-item-date text-muted">
-                            Connected {new Date(repo.connectedAt).toLocaleDateString()}
+                            Connected {new Date(repo.connected_at).toLocaleDateString()}
                           </span>
                         </div>
                       </div>

@@ -86,9 +86,9 @@ describe('Screens 5 & 6: Claims, Findings and Evidence Drawer', () => {
     );
 
     // Finding 2 is inconclusive
-    expect(screen.getByText('Inconclusive')).toBeInTheDocument();
+    expect(screen.getByText('Unverified')).toBeInTheDocument();
     expect(
-      screen.getByText(/Missing Evidence \/ Inconclusive Factor:/i),
+      screen.getByText(/Missing Evidence \/ Unverified Factor:/i),
     ).toBeInTheDocument();
     expect(
       screen.getByText(/Repository retrieval found no matching definitions/i),

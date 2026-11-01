@@ -14,17 +14,9 @@ import {
   IconSearch,
 } from '../common/Icons';
 
-interface PRAnalysisStateRecord {
-  analysisId: string;
-  analysedHeadCommit: string;
-  status: 'queued' | 'analysing' | 'complete' | 'failed' | 'outdated';
-  updatedAt: string;
-}
-
 interface PullRequestInboxProps {
   repository: ConnectedRepository;
   pullRequests: PullSummary[];
-  analysisMap: Record<number, PRAnalysisStateRecord>;
   isLoading: boolean;
   error: string | null;
   lastRefreshed: Date | null;
@@ -40,7 +32,6 @@ interface PullRequestInboxProps {
 export function PullRequestInbox({
   repository,
   pullRequests,
-  analysisMap,
   isLoading,
   error,
   lastRefreshed,
@@ -60,7 +51,6 @@ export function PullRequestInbox({
   // Compute effective analysis state for each PR
   const enrichedPRs = useMemo(() => {
     return pullRequests.map((pr) => {
-      const record = analysisMap[pr.number];
       let analysisState: PRAnalysisStatus = 'not_analysed';
 
       if (pr.latest_analysis_stage) {
@@ -75,12 +65,6 @@ export function PullRequestInbox({
         } else {
           analysisState = 'analysing';
         }
-      } else if (record) {
-        if (record.analysedHeadCommit && record.analysedHeadCommit !== pr.head_sha) {
-          analysisState = 'outdated';
-        } else {
-          analysisState = record.status;
-        }
       }
 
       return {
@@ -88,7 +72,7 @@ export function PullRequestInbox({
         analysisState,
       };
     });
-  }, [pullRequests, analysisMap]);
+  }, [pullRequests]);
 
   // Filtered and searched PRs
   const filteredPRs = useMemo(() => {

@@ -139,7 +139,16 @@ export default function App() {
     setPrError(null);
     try {
       const res = await fetchPullRequests(repo.id, 1);
-      setPullRequests(res.items);
+      const history = await fetchInvestigations(repo.id).catch(() => []);
+      setPullRequests(res.items.map((pr) => {
+        const latest = history.find((item) => item.context.pr_number === pr.number);
+        return {
+          ...pr,
+          latest_analysis_id: latest?.id,
+          latest_analysis_stage: latest?.stage,
+          is_outdated: Boolean(latest && latest.context.head_sha !== pr.head_sha),
+        };
+      }));
       setLastRefreshed(new Date());
     } catch (err: unknown) {
       setPrError(err instanceof Error ? err.message : String(err));
