@@ -13,6 +13,7 @@ interface InvestigationProgressProps {
   pollCount: number;
   onStopWaiting: () => void;
   onRefreshNow: () => void;
+  onReanalyse?: () => void;
 }
 
 interface StageStep {
@@ -71,6 +72,7 @@ export function InvestigationProgress({
   pollCount,
   onStopWaiting,
   onRefreshNow,
+  onReanalyse,
 }: InvestigationProgressProps) {
   const getStageIndex = (s: Stage) => {
     if (s === 'awaiting_evidence') return 2; // After extracting
@@ -154,6 +156,17 @@ export function InvestigationProgress({
                   <li key={i}>{err}</li>
                 ))}
               </ul>
+              {onReanalyse && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    onClick={onReanalyse}
+                  >
+                    Start New Analysis
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

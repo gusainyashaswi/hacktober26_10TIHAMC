@@ -207,8 +207,26 @@ export default function App() {
         if (report.stage === 'complete' || report.stage === 'error') {
           stopPolling();
         }
-      } catch {
+      } catch (err: unknown) {
         stopPolling();
+        // If the analysis was lost (server restart / 404), mark it as error so
+        // the UI shows a recoverable state rather than staying "Analysing".
+        const is404 =
+          err instanceof Error &&
+          (err as { status?: number }).status === 404;
+        if (is404) {
+          setCurrentAnalysis((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  stage: 'error',
+                  errors: [
+                    'Analysis not found on backend — the server may have restarted. Start a new analysis.',
+                  ],
+                }
+              : prev,
+          );
+        }
       }
     },
     [stopPolling],
@@ -323,7 +341,36 @@ export default function App() {
         startPolling(report.id);
       }
     } catch (err: unknown) {
-      alert(`Could not open analysis ${analysisId}: ${err instanceof Error ? err.message : String(err)}`);
+      const is404 =
+        err instanceof Error && (err as { status?: number }).status === 404;
+      if (is404) {
+        // Analysis was lost (server restart). Show an error state that lets the
+        // user immediately re-trigger without having to navigate back to the inbox.
+        const lostReport: AnalysisReport = {
+          schema_version: '1.0',
+          id: analysisId,
+          repository: selectedRepository?.url ?? '',
+          revision: selectedPR?.base_sha ?? '',
+          comparison_revision: selectedPR?.head_sha,
+          model: health?.model ?? 'qwen3:8b',
+          stage: 'error',
+          claims: [],
+          evidence: [],
+          findings: [],
+          executions: [],
+          approved_tests: [],
+          comparisons: [],
+          errors: [
+            'Analysis not found — the backend may have restarted and lost in-memory state. Use "Re-analyse PR" to start fresh.',
+          ],
+        };
+        setCurrentAnalysis(lostReport);
+        setCurrentView('investigation');
+      } else {
+        alert(
+          `Could not open analysis ${analysisId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   };
 
@@ -510,6 +557,9 @@ export default function App() {
                 pollCount={pollCount}
                 onStopWaiting={stopPolling}
                 onRefreshNow={() => pollAnalysis(currentAnalysis.id)}
+                onReanalyse={
+                  selectedPR ? () => handleStartPRAnalysis(selectedPR.number) : undefined
+                }
               />
             )}
 
